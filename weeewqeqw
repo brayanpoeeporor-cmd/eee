@@ -1,0 +1,2416 @@
+local _nlSrc = game:HttpGet('https://raw.githubusercontent.com/B5RLAS/Neverlose/main/NeverLose.lua')
+local _cut = _nlSrc:find('local Window = Library:CreateWindow')
+if _cut then _nlSrc = _nlSrc:sub(1, _cut - 1) .. '\nreturn Library\n' end
+_nlSrc = _nlSrc:gsub("Size = UDim2%.fromOffset%(690, 500%)", "Size = UDim2.fromOffset(980, 640)")
+_nlSrc = _nlSrc:gsub("Position = UDim2%.new%(0%.5, %-345, 0%.5, %-250%)", "Position = UDim2.new(0.5, -490, 0.5, -320)")
+local NeverLose = loadstring(_nlSrc)()
+NeverLose.ToggleKey = Enum.KeyCode.P
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local StarterGui        = game:GetService("StarterGui")
+local Lighting          = game:GetService("Lighting")
+local LocalPlayer       = Players.LocalPlayer
+local CollectionService = game:GetService("CollectionService")
+local Teams             = game:GetService("Teams")
+
+local bronxBailEvent  = ReplicatedStorage:WaitForChild("BronxBail")
+local getArrestsRF    = ReplicatedStorage:WaitForChild("getArrests")
+local arrestLogEvent  = ReplicatedStorage:WaitForChild("ArrestLog")
+local arrestHelpEvent = ReplicatedStorage:WaitForChild("ArrestHelp")
+
+local Window = NeverLose:CreateWindow({
+    Title = "Spy bronx 3",
+    User  = LocalPlayer.Name,
+    Till  = "free mode",
+})
+
+getgenv().TacoTeleport = function(targetCFrame)
+    local lp = Players.LocalPlayer
+    local char = lp.Character or lp.CharacterAdded:Wait()
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum or not hrp or not targetCFrame then return false end
+
+    getgenv().SwimMethod = true
+    pcall(function() hum:ChangeState(Enum.HumanoidStateType.FallingDown) end)
+
+    local n = 1
+    local waitStarted = os.clock()
+    repeat
+        task.wait()
+        n = n + 1
+    until (n >= 40 and not lp:GetAttribute("LastACPos"))
+        or (os.clock() - waitStarted >= 2.5)
+
+    for _ = 1, 3 do
+        if not hrp.Parent then break end
+        pcall(function() hrp.CFrame = targetCFrame end)
+        pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero; hrp.AssemblyAngularVelocity = Vector3.zero end)
+        task.wait()
+    end
+
+    pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+    getgenv().SwimMethod = false
+    return true
+end
+
+task.spawn(function()
+    while task.wait() do
+        if getgenv().SwimMethod then
+            local lp = Players.LocalPlayer
+            local char = lp.Character
+            if char and char:FindFirstChildWhichIsA("Humanoid") then
+                pcall(function()
+                    char:FindFirstChildWhichIsA("Humanoid"):ChangeState(Enum.HumanoidStateType.FallingDown)
+                end)
+            end
+        end
+    end
+end)
+
+Config = {}
+function Config:Teleport(targetCFrame)
+    return getgenv().TacoTeleport(targetCFrame)
+end
+
+local outfits = {
+    ["Blue Spider"] = { Hats={"MRHoodieBRR"}, Shirts={"Blue Sp5der Hoodie"}, Pants={"Blue Sp5der Sweats"}, Shiestys={"Shiesty"}, Masks={} },
+    ["Spider Man"]  = { Hats={}, Shirts={"Spiderman"}, Pants={"Spiderman"}, Shiestys={"RedShiesty"}, Masks={} },
+    ["Blood Clown"] = { Hats={}, Shirts={"Red B Jacket"}, Pants={"Red B Shorts"}, Shiestys={}, Masks={"MRCLOWN MAN"} },
+    ["Crip Clown"]  = { Hats={}, Shirts={"Blu C Amiri Hoodie"}, Pants={"Blu B Shorts"}, Shiestys={}, Masks={"MRCLOWN MAN"} },
+    ["Red Spider"]  = { Hats={"MRHoodieBRR"}, Shirts={"Red Sp5der Sweats"}, Pants={"Red Sp5der Sweats"}, Shiestys={"Shiesty"}, Masks={} },
+}
+local function _equipOutfitItem(category, itemName)
+    pcall(function() ReplicatedStorage.ClothShopRemote:FireServer("Buy", category, itemName) end)
+    task.wait(0.3)
+    pcall(function() ReplicatedStorage.ClothShopRemote:FireServer("Wear", category, itemName) end)
+    task.wait(0.2)
+end
+local function equipOutfit(outfitName)
+    local outfit = outfits[outfitName]
+    if not outfit then return end
+    pcall(function() ReplicatedStorage.ClothShopRemote:FireServer("Reset Data") end)
+    task.wait(0.3)
+    for _, v in ipairs(outfit.Hats or {}) do _equipOutfitItem("Hats", v) end
+    for _, v in ipairs(outfit.Shirts or {}) do _equipOutfitItem("Shirts", v) end
+    for _, v in ipairs(outfit.Pants or {}) do _equipOutfitItem("Pants", v) end
+    for _, v in ipairs(outfit.Shiestys or {}) do _equipOutfitItem("Shiestys", v) end
+    for _, v in ipairs(outfit.Masks or {}) do _equipOutfitItem("Masks", v) end
+end
+
+local AntiLoseEnabled = false
+local ExemptItems = { "Phone", "Fist", "Shiesty", "Bandage", "Lemonade", "Car keys" }
+
+local _aimbotCfg = {
+    Enabled = false,
+    UseAlwaysOn = true,
+    Key = Enum.UserInputType.MouseButton2,
+    HitPart = "Head",
+    FOV = 200,
+    Smooth = 0.25,
+    ShowFOV = true,
+    VisibleCheck = true,
+    FOVMode = "Screen Center",
+}
+local _aimbotConn = nil
+local _aimbotFOVCircle = nil
+local _aimbotFOVCircle2 = nil
+
+local function _aimbotInitFOV()
+    if _aimbotFOVCircle then return end
+    pcall(function()
+        _aimbotFOVCircle = Drawing.new("Circle")
+        _aimbotFOVCircle.Thickness = 1.5
+        _aimbotFOVCircle.NumSides = 80
+        _aimbotFOVCircle.Color = Color3.fromRGB(0, 200, 80)
+        _aimbotFOVCircle.Filled = false
+        _aimbotFOVCircle.Transparency = 1
+        _aimbotFOVCircle.Visible = false
+        _aimbotFOVCircle2 = Drawing.new("Circle")
+        _aimbotFOVCircle2.Thickness = 3
+        _aimbotFOVCircle2.NumSides = 80
+        _aimbotFOVCircle2.Color = Color3.fromRGB(0, 0, 0)
+        _aimbotFOVCircle2.Filled = false
+        _aimbotFOVCircle2.Transparency = 0.45
+        _aimbotFOVCircle2.Visible = false
+    end)
+end
+
+local function _aimbotUpdateFOVVisual()
+    if not _aimbotFOVCircle then return end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    if _aimbotCfg.Enabled and _aimbotCfg.ShowFOV then
+        local vp = cam.ViewportSize
+        local radius = (vp.Y / 2) * math.tan(math.rad(_aimbotCfg.FOV / 2))
+        local center
+        if _aimbotCfg.FOVMode == "Follow Mouse" then
+            center = UserInputService:GetMouseLocation()
+        else
+            center = Vector2.new(vp.X / 2, vp.Y / 2)
+        end
+        _aimbotFOVCircle.Position = center
+        _aimbotFOVCircle.Radius = radius
+        _aimbotFOVCircle.Visible = true
+        _aimbotFOVCircle2.Position = center
+        _aimbotFOVCircle2.Radius = radius
+        _aimbotFOVCircle2.Visible = true
+    else
+        _aimbotFOVCircle.Visible = false
+        _aimbotFOVCircle2.Visible = false
+    end
+end
+
+local function _aimbotActive()
+    if not _aimbotCfg.Enabled then return false end
+    if _aimbotCfg.UseAlwaysOn then return true end
+    if _aimbotCfg.Key == Enum.UserInputType.MouseButton2 then
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+    elseif _aimbotCfg.Key == Enum.UserInputType.MouseButton1 then
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+    else
+        return UserInputService:IsKeyDown(_aimbotCfg.Key)
+    end
+end
+
+local function _aimbotIsVisible(targetPart, targetChar)
+    if not _aimbotCfg.VisibleCheck then return true end
+    local cam = workspace.CurrentCamera
+    if not cam or not targetPart then return true end
+    local origin = cam.CFrame.Position
+    local dest = targetPart.Position
+    local dir = (dest - origin)
+    local dist = dir.Magnitude
+    if dist < 0.1 then return true end
+    local filter = {}
+    local myChar = LocalPlayer.Character
+    if myChar then table.insert(filter, myChar) end
+    if targetChar then table.insert(filter, targetChar) end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = filter
+    params.IgnoreWater = true
+    local result = workspace:Raycast(origin, dir, params)
+    if not result then return true end
+    if result.Instance == targetPart then return true end
+    if targetChar and result.Instance:IsDescendantOf(targetChar) then return true end
+    return false
+end
+
+local function _aimbotFindTarget()
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+    local vp = cam.ViewportSize
+    local radius = (vp.Y / 2) * math.tan(math.rad(_aimbotCfg.FOV / 2))
+    local center
+    if _aimbotCfg.FOVMode == "Follow Mouse" then
+        center = UserInputService:GetMouseLocation()
+    else
+        center = Vector2.new(vp.X / 2, vp.Y / 2)
+    end
+    local best, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local c = p.Character
+            local hum = c and c:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                local partName = _aimbotCfg.HitPart
+                if partName == "Torso" then partName = "UpperTorso" end
+                local targetPart = nil
+                if _aimbotCfg.HitPart == "Closest" then
+                    local bestLocal = nil
+                    local bestLocalDist = math.huge
+                    for _, name in ipairs({"Head","UpperTorso","HumanoidRootPart"}) do
+                        local pt = c:FindFirstChild(name)
+                        if pt then
+                            local sp, on = cam:WorldToViewportPoint(pt.Position)
+                            if on and sp.Z > 0 then
+                                local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                                if d < bestLocalDist then
+                                    bestLocalDist = d
+                                    bestLocal = pt
+                                end
+                            end
+                        end
+                    end
+                    targetPart = bestLocal
+                else
+                    targetPart = c:FindFirstChild(partName or "Head") or c:FindFirstChild("HumanoidRootPart")
+                end
+                if targetPart then
+                    local sp, on = cam:WorldToViewportPoint(targetPart.Position)
+                    if on and sp.Z > 0 then
+                        local screenPos = Vector2.new(sp.X, sp.Y)
+                        local d = (screenPos - center).Magnitude
+                        if d <= radius and d < bestDist then
+                            if _aimbotIsVisible(targetPart, c) then
+                                bestDist = d
+                                best = { player = p, part = targetPart }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function _aimbotStop()
+    if _aimbotConn then pcall(function() _aimbotConn:Disconnect() end); _aimbotConn = nil end
+    if _aimbotFOVCircle then _aimbotFOVCircle.Visible = false end
+    if _aimbotFOVCircle2 then _aimbotFOVCircle2.Visible = false end
+end
+
+local function _aimbotStart()
+    _aimbotStop()
+    _aimbotInitFOV()
+    _aimbotConn = RunService.RenderStepped:Connect(function(dt)
+        _aimbotUpdateFOVVisual()
+        if not _aimbotCfg.Enabled then return end
+        if not _aimbotActive() then return end
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        local tgt = _aimbotFindTarget()
+        if not tgt or not tgt.part or not tgt.part.Parent then return end
+        local desired = CFrame.new(cam.CFrame.Position, tgt.part.Position)
+        if _aimbotCfg.Smooth <= 0 then
+            cam.CFrame = desired
+        else
+            local alpha = math.clamp(dt / math.max(_aimbotCfg.Smooth, 0.01), 0, 1)
+            cam.CFrame = cam.CFrame:Lerp(desired, alpha)
+        end
+    end)
+end
+
+local function getTargetPlayerList()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then table.insert(list, p.Name) end end
+    table.sort(list)
+    if #list == 0 then list = { 'None' } end
+    return list
+end
+local function getSelectedTargetPlayer()
+    local sel = getgenv().TargetUtilities.SelectedPlayer
+    if typeof(sel) == "Instance" and sel:IsA("Player") then return sel end
+    if type(sel) == "string" and sel ~= "" then return Players:FindFirstChild(sel) end
+end
+local function isValidTargetPlayer(p)
+    if not p or p == LocalPlayer then return false end
+    local c = p.Character; if not c then return false end
+    local h = c:FindFirstChildOfClass("Humanoid"); local r = c:FindFirstChild("HumanoidRootPart")
+    return h and h.Health > 0 and r ~= nil
+end
+local function getNearestTargetPlayer()
+    local lr = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not lr then return nil end
+    local nearest, nearestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if isValidTargetPlayer(p) then
+            local d = (p.Character.HumanoidRootPart.Position - lr.Position).Magnitude
+            if d < nearestDist then nearest, nearestDist = p, d end
+        end
+    end
+    return nearest
+end
+
+getgenv().targetSpectateReset = true
+RunService:BindToRenderStep("TacoTargetSpectate", Enum.RenderPriority.Camera.Value, function()
+    local cam = workspace.CurrentCamera; if not cam then return end
+    if getgenv().TargetUtilities.SpectatePlayer then
+        getgenv().targetSpectateReset = false
+        local t = getSelectedTargetPlayer()
+        local s = t and t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+        if not s and LocalPlayer.Character then s = LocalPlayer.Character:FindFirstChildOfClass("Humanoid") end
+        if s then cam.CameraSubject = s end
+    elseif not getgenv().targetSpectateReset and LocalPlayer.Character then
+        getgenv().targetSpectateReset = true
+        local h = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if h then cam.CameraSubject = h end
+    end
+end)
+
+task.spawn(function()
+    while task.wait() do
+        if getgenv().TargetUtilities.BringingPlayer then
+            local t = getSelectedTargetPlayer()
+            local lr = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local tr = t and t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+            if lr and tr then tr.CFrame = lr.CFrame + Vector3.new(2, 0, 0) end
+        end
+        if getgenv().TargetUtilities.BringingNearestPlayer then
+            local t = getNearestTargetPlayer()
+            local lr = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local tr = t and t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+            if lr and tr then tr.CFrame = lr.CFrame + Vector3.new(2, 0, 0) end
+        end
+    end
+end)
+
+getgenv().whitelist = getgenv().whitelist or {}
+getgenv().carFlingRunning = false
+local function isWhitelisted(player) return player and getgenv().whitelist[player.Name] == true end
+local function getCarFlingVehicle()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart"); if not root then return nil, nil end
+    local nearestCar, nearestSeat, nearestDistance = nil, nil, math.huge
+    for _, folderName in ipairs({ "CivCars", "PoliceCars", "NPCCars", "Cars", "Vehicles" }) do
+        local folder = workspace:FindFirstChild(folderName)
+        if folder then
+            for _, car in ipairs(folder:GetChildren()) do
+                if car:IsA("Model") then
+                    local seat = car:FindFirstChild("DriveSeat", true) or car:FindFirstChildWhichIsA("VehicleSeat", true)
+                    if seat and not seat.Occupant then
+                        local mainPart = car.PrimaryPart or (car:FindFirstChild("Body") and car.Body:FindFirstChild("#Weight", true)) or car:FindFirstChildWhichIsA("BasePart", true)
+                        if mainPart then
+                            local distance = (mainPart.Position - root.Position).Magnitude
+                            if distance < nearestDistance then nearestDistance = distance; nearestCar = car; nearestSeat = seat end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nearestCar, nearestSeat
+end
+local function setCarFlingVelocity(car, velocity)
+    if not car then return end
+    for _, part in ipairs(car:GetDescendants()) do
+        if part:IsA("BasePart") then pcall(function() part.AssemblyLinearVelocity = velocity; part.AssemblyAngularVelocity = Vector3.zero end) end
+    end
+end
+local function safeTeleportLocal(cf) pcall(function() getgenv().TacoTeleport(cf) end) end
+
+local function kickPlayer(targetPlayer)
+    if not targetPlayer or targetPlayer == LocalPlayer or not isValidTargetPlayer(targetPlayer) then return false end
+    if isWhitelisted(targetPlayer) then return false end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local targetChar = targetPlayer.Character
+    local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+    if not root or not hum or not targetRoot then return false end
+    local returnCF = root.CFrame
+    local oldSize, oldTransparency, oldCollide
+    local car, seat
+    local success = false
+    local function cleanup()
+        if car then pcall(function() setCarFlingVelocity(car, Vector3.zero) end) end
+        if targetRoot and targetRoot.Parent and oldSize then pcall(function() targetRoot.Size = oldSize; targetRoot.Transparency = oldTransparency; targetRoot.CanCollide = oldCollide end) end
+        if hum and hum.Parent then pcall(function() hum.Sit = false; hum.Jump = true; hum:ChangeState(Enum.HumanoidStateType.Jumping) end) end
+        local liveRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if liveRoot and returnCF then pcall(function() liveRoot.AssemblyLinearVelocity = Vector3.zero; liveRoot.AssemblyAngularVelocity = Vector3.zero; getgenv().TacoTeleport(returnCF) end) end
+    end
+    local ok = pcall(function()
+        oldSize, oldTransparency, oldCollide = targetRoot.Size, targetRoot.Transparency, targetRoot.CanCollide
+        pcall(function() targetRoot.Size = Vector3.new(25,25,25); targetRoot.Transparency = 1; targetRoot.CanCollide = false end)
+        car, seat = getCarFlingVehicle(); if not car or not seat then cleanup() return end
+        if not car.PrimaryPart then car.PrimaryPart = (car:FindFirstChild("Body") and car.Body:FindFirstChild("#Weight", true)) or car:FindFirstChildWhichIsA("BasePart", true) or seat end
+        if not car.PrimaryPart then cleanup() return end
+        safeTeleportLocal(seat.CFrame * CFrame.new(0,2,0)); task.wait(0.25)
+        seat:Sit(hum); car:SetAttribute("Usable", true); task.wait(0.9)
+        if hum.SeatPart ~= seat then cleanup() return end
+        local seatPart = hum.SeatPart; local unseatStart = os.clock()
+        while os.clock() - unseatStart < 1.4 do
+            pcall(function()
+                hum.Sit = false; hum.Jump = true; hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                if seatPart then for _, weld in ipairs(seatPart:GetDescendants()) do if weld:IsA("Weld") or weld:IsA("Motor6D") or weld.Name == "SeatWeld" then weld:Destroy() end end end
+            end)
+            if not hum.Sit and not hum.SeatPart then break end
+            task.wait(0.02)
+        end
+        task.wait(0.35)
+        if root and root.Parent and returnCF then pcall(function() root.AssemblyLinearVelocity = Vector3.zero; root.AssemblyAngularVelocity = Vector3.zero; root.CFrame = returnCF end) end
+        local flingStart = os.clock()
+        while os.clock() - flingStart < 3 do
+            if not car.Parent or not targetRoot.Parent then break end
+            pcall(function() if car.PrimaryPart then car:SetPrimaryPartCFrame(targetRoot.CFrame) else car:PivotTo(targetRoot.CFrame) end end)
+            setCarFlingVelocity(car, Vector3.new(0, 20000, 0)); task.wait(0.02)
+        end
+        success = true; cleanup()
+    end)
+    if not ok then cleanup() end
+    return success
+end
+local function kickPlayerByName(name)
+    if not name then return end
+    local p = Players:FindFirstChild(name); if not p or p == LocalPlayer then return end
+    if isWhitelisted(p) then return end
+    if getgenv().carFlingRunning then return end
+    getgenv().carFlingRunning = true
+    task.spawn(function() kickPlayer(p); getgenv().carFlingRunning = false end)
+end
+local WhitelistDropdownObject
+local function refreshWhitelistDropdown()
+    local values = {}
+    for name, _ in pairs(getgenv().whitelist) do table.insert(values, name) end
+    table.sort(values, function(a,b) return a:lower() < b:lower() end)
+    if #values == 0 then values = { 'None' } end
+    if WhitelistDropdownObject then pcall(function() WhitelistDropdownObject:Refresh(values) end) end
+end
+
+local flyEnabled = false
+local flyConnections = {}
+local flyVelocity, flyGyro, flySeat
+local flySpeed = 80
+local function cleanupFly()
+    for _, conn in ipairs(flyConnections) do if conn and conn.Disconnect then pcall(function() conn:Disconnect() end) end end
+    flyConnections = {}
+    if flyVelocity and flyVelocity.Parent then flyVelocity:Destroy(); flyVelocity = nil end
+    if flyGyro and flyGyro.Parent then flyGyro:Destroy(); flyGyro = nil end
+    if flySeat and flySeat.Parent then flySeat:Destroy(); flySeat = nil end
+    local char = LocalPlayer.Character
+    if char then
+        local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if humanoid and hrp then pcall(function() humanoid:ChangeState(0); task.wait(0.1); humanoid:ChangeState(2); humanoid.PlatformStand = false; humanoid.Jump = false; hrp.AssemblyLinearVelocity = Vector3.zero; hrp.AssemblyAngularVelocity = Vector3.zero end) end
+    end
+end
+local function setupFly()
+    cleanupFly()
+    local char = LocalPlayer.Character; if not char then return end
+    local humanoid = char:FindFirstChildWhichIsA("Humanoid"); local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
+    local seat = Instance.new("VehicleSeat")
+    seat.Name = "FlySeat"; seat.Anchored = false; seat.CanCollide = false
+    seat.Transparency = 1; seat.TopSurface = Enum.SurfaceType.Smooth; seat.BottomSurface = Enum.SurfaceType.Smooth; seat.Parent = workspace
+    seat.CFrame = hrp.CFrame * CFrame.new(0, -3, 0)
+    local weld = Instance.new("Weld"); weld.Part0 = seat; weld.Part1 = hrp; weld.C0 = CFrame.new(0, 3, 0); weld.Parent = seat
+    seat:Sit(humanoid)
+    flyVelocity = Instance.new("BodyVelocity"); flyVelocity.MaxForce = Vector3.new(1e9,1e9,1e9); flyVelocity.Velocity = Vector3.zero; flyVelocity.Parent = hrp
+    flyGyro = Instance.new("BodyGyro"); flyGyro.MaxTorque = Vector3.new(1e9,1e9,1e9); flyGyro.P = 50000; flyGyro.D = 1000; flyGyro.CFrame = hrp.CFrame; flyGyro.Parent = hrp
+    flySeat = seat
+    local move = {W=false,A=false,S=false,D=false,Space=false,Shift=false}
+    table.insert(flyConnections, UserInputService.InputBegan:Connect(function(i,g)
+        if g then return end
+        if i.KeyCode==Enum.KeyCode.W then move.W=true end
+        if i.KeyCode==Enum.KeyCode.A then move.A=true end
+        if i.KeyCode==Enum.KeyCode.S then move.S=true end
+        if i.KeyCode==Enum.KeyCode.D then move.D=true end
+        if i.KeyCode==Enum.KeyCode.Space then move.Space=true end
+        if i.KeyCode==Enum.KeyCode.LeftShift then move.Shift=true end
+        if i.KeyCode==Enum.KeyCode.E then flySpeed=math.clamp(flySpeed+10,20,300) end
+        if i.KeyCode==Enum.KeyCode.Q then flySpeed=math.clamp(flySpeed-10,20,300) end
+    end))
+    table.insert(flyConnections, UserInputService.InputEnded:Connect(function(i)
+        if i.KeyCode==Enum.KeyCode.W then move.W=false end
+        if i.KeyCode==Enum.KeyCode.A then move.A=false end
+        if i.KeyCode==Enum.KeyCode.S then move.S=false end
+        if i.KeyCode==Enum.KeyCode.D then move.D=false end
+        if i.KeyCode==Enum.KeyCode.Space then move.Space=false end
+        if i.KeyCode==Enum.KeyCode.LeftShift then move.Shift=false end
+    end))
+    table.insert(flyConnections, RunService.RenderStepped:Connect(function()
+        if not flyEnabled or not flyVelocity or not flyGyro then return end
+        local cam = workspace.CurrentCamera; flyGyro.CFrame = cam.CFrame
+        local dir = Vector3.zero
+        if move.W then dir=dir+cam.CFrame.LookVector end
+        if move.S then dir=dir-cam.CFrame.LookVector end
+        if move.A then dir=dir-cam.CFrame.RightVector end
+        if move.D then dir=dir+cam.CFrame.RightVector end
+        if move.Space then dir=dir+Vector3.new(0,1,0) end
+        if move.Shift then dir=dir-Vector3.new(0,1,0) end
+        flyVelocity.Velocity = dir.Magnitude>0 and dir.Unit*flySpeed or Vector3.zero
+    end))
+end
+getgenv().jumpPowerEnabled = false
+local function applyJumpPower()
+    local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+    hum.UseJumpPower = true
+    hum.JumpPower = getgenv().jumpPowerEnabled and (getgenv().jumpPowerValue or 50) or 50
+end
+getgenv().infJumpEnabled = false
+UserInputService.JumpRequest:Connect(function()
+    if not getgenv().infJumpEnabled then return end
+    local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+end)
+getgenv().noclipConn = nil
+local function setNoclip(enabled)
+    if getgenv().noclipConn then getgenv().noclipConn:Disconnect(); getgenv().noclipConn = nil end
+    if not enabled then
+        local char = LocalPlayer.Character
+        if char then for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = true end end end
+        return
+    end
+    getgenv().noclipConn = RunService.Stepped:Connect(function()
+        local char = LocalPlayer.Character; if not char then return end
+        for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end
+    end)
+end
+
+getgenv().antiAfkEnabled = false
+task.spawn(function()
+    local VirtualUser = game:GetService("VirtualUser")
+    while true do task.wait(1200); if getgenv().antiAfkEnabled then pcall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end) end end
+end)
+getgenv().fasterRespawn = false
+task.spawn(function()
+    while task.wait(0.1) do
+        if getgenv().fasterRespawn then
+            local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum:GetState() == Enum.HumanoidStateType.Dead then
+                local lc = ReplicatedStorage:FindFirstChild("LoadCharacter")
+                if lc and lc:IsA("RemoteEvent") then pcall(function() lc:FireServer() end) end
+            end
+        end
+    end
+end)
+getgenv().respawnWhereDied = false
+getgenv().respawnDeathCF = nil
+getgenv().respawnConnections = {}
+local function clearRespawnConns() for _, c in ipairs(getgenv().respawnConnections) do pcall(function() c:Disconnect() end) end; getgenv().respawnConnections = {} end
+local function bindRespawnCapture(char)
+    clearRespawnConns(); if not char then return end
+    local hum = char:WaitForChild("Humanoid",10); local root = char:WaitForChild("HumanoidRootPart",10)
+    if not hum or not root then return end
+    local captured = false
+    local function capture() if captured then return end; captured = true; if getgenv().respawnWhereDied and root then getgenv().respawnDeathCF = root.CFrame end end
+    table.insert(getgenv().respawnConnections, hum.Died:Connect(capture))
+    table.insert(getgenv().respawnConnections, hum.HealthChanged:Connect(function(h) if h <= 0 then capture() end end))
+end
+if LocalPlayer.Character then task.defer(bindRespawnCapture, LocalPlayer.Character) end
+LocalPlayer.CharacterAdded:Connect(function(char)
+    local returnCF = getgenv().respawnWhereDied and getgenv().respawnDeathCF or nil
+    bindRespawnCapture(char)
+    if not returnCF then return end
+    task.spawn(function()
+        local root = char:WaitForChild("HumanoidRootPart",10); if not root or not getgenv().respawnWhereDied then return end
+        task.wait(0.8); pcall(function() getgenv().TacoTeleport(returnCF) end)
+        if root.Parent then root.CFrame = returnCF; root.AssemblyLinearVelocity = Vector3.zero; root.AssemblyAngularVelocity = Vector3.zero end
+        getgenv().respawnDeathCF = nil
+    end)
+end)
+getgenv().noCameraBob = false
+RunService.RenderStepped:Connect(function()
+    if not getgenv().noCameraBob then return end
+    local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.CameraOffset.Magnitude > 0 then hum.CameraOffset = Vector3.zero end
+end)
+getgenv().antiJumpCooldownEnabled = false
+getgenv().antiJumpDisabledScripts = {}
+local function setAntiJumpCooldown(state)
+    getgenv().antiJumpCooldownEnabled = state
+    local function process(container)
+        if not container then return end
+        for _, obj in ipairs(container:GetDescendants()) do
+            if obj:IsA("LocalScript") then
+                local name = obj.Name:lower(); local path = obj:GetFullName():lower()
+                local isJumpCooldown = (name:find("jump") and (name:find("debounce") or name:find("cooldown"))) or path:find("jumpdebounce",1,true) or path:find("jumpcooldown",1,true)
+                if isJumpCooldown then
+                    if state then if getgenv().antiJumpDisabledScripts[obj] == nil then getgenv().antiJumpDisabledScripts[obj] = obj.Enabled end; obj.Enabled = false
+                    elseif getgenv().antiJumpDisabledScripts[obj] ~= nil then obj.Enabled = getgenv().antiJumpDisabledScripts[obj]; getgenv().antiJumpDisabledScripts[obj] = nil end
+                end
+            end
+        end
+    end
+    process(LocalPlayer:FindFirstChild("PlayerGui")); process(LocalPlayer.Character)
+    if not state then
+        for scriptObject, prev in pairs(getgenv().antiJumpDisabledScripts) do pcall(function() if scriptObject and scriptObject.Parent then scriptObject.Enabled = prev end end); getgenv().antiJumpDisabledScripts[scriptObject] = nil end
+    end
+end
+getgenv().lastForcedJump = 0
+UserInputService.JumpRequest:Connect(function()
+    if not getgenv().antiJumpCooldownEnabled then return end
+    if os.clock() - getgenv().lastForcedJump < 0.08 then return end
+    local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root or hum.Health <= 0 then return end
+    if hum.FloorMaterial == Enum.Material.Air then return end
+    getgenv().lastForcedJump = os.clock()
+    hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+    hum.Jump = true; hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    local jumpV = hum.UseJumpPower and math.max(tonumber(hum.JumpPower) or 50, 50) or math.sqrt(2 * workspace.Gravity * math.max(tonumber(hum.JumpHeight) or 7.2, 7.2))
+    local v = root.AssemblyLinearVelocity
+    root.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, jumpV), v.Z)
+end)
+getgenv().promptsDisabledOnce = false
+getgenv().promptConnections = {}
+local function setupPrompt(p, instant)
+    if not p or not p:IsA("ProximityPrompt") then return end
+    if instant then p.HoldDuration = 0; p.RequiresLineOfSight = false; getgenv().promptConnections[p] = true
+    else p.HoldDuration = 1; p.RequiresLineOfSight = true; getgenv().promptConnections[p] = nil end
+end
+local function refreshPrompts(instant)
+    for prompt, _ in pairs(getgenv().promptConnections) do if prompt and prompt.Parent then pcall(function() prompt.HoldDuration = 1; prompt.RequiresLineOfSight = true end) end end
+    getgenv().promptConnections = {}
+    for _, p in ipairs(workspace:GetDescendants()) do if p:IsA("ProximityPrompt") then setupPrompt(p, instant) end end
+end
+workspace.DescendantAdded:Connect(function(d) if getgenv().promptsDisabledOnce and d:IsA("ProximityPrompt") then task.defer(function() setupPrompt(d, true) end) end end)
+getgenv().noRentPayEnabled = false
+getgenv().savedRentScripts = {}
+getgenv().savedRentGuis = {}
+local function isRentObject(object)
+    if not object then return false end
+    local ok, fullName = pcall(function() return object:GetFullName():lower() end)
+    local search = ok and fullName or tostring(object.Name):lower()
+    return search:find("rent",1,true) ~= nil
+end
+local function applyNoRentObject(obj)
+    if not getgenv().noRentPayEnabled or not obj or not isRentObject(obj) then return end
+    if obj:IsA("LocalScript") or obj:IsA("Script") then
+        if getgenv().savedRentScripts[obj] == nil then getgenv().savedRentScripts[obj] = obj.Enabled end; obj.Enabled = false
+    elseif obj:IsA("ScreenGui") then
+        if getgenv().savedRentGuis[obj] == nil then getgenv().savedRentGuis[obj] = obj.Enabled end; obj.Enabled = false
+    end
+end
+local function setNoRentPay(state)
+    getgenv().noRentPayEnabled = state
+    if state then
+        for _, container in ipairs({ game:GetService("StarterGui"), LocalPlayer:FindFirstChild("PlayerGui"), LocalPlayer:FindFirstChild("PlayerScripts") }) do
+            if container then for _, obj in ipairs(container:GetDescendants()) do applyNoRentObject(obj) end end
+        end
+        LocalPlayer:FindFirstChild("PlayerGui").DescendantAdded:Connect(function(obj) task.defer(applyNoRentObject, obj) end)
+    else
+        for obj, prev in pairs(getgenv().savedRentScripts) do pcall(function() if obj and obj.Parent then obj.Enabled = prev end end); getgenv().savedRentScripts[obj] = nil end
+        for obj, prev in pairs(getgenv().savedRentGuis) do pcall(function() if obj and obj.Parent then obj.Enabled = prev end end); getgenv().savedRentGuis[obj] = nil end
+    end
+end
+getgenv().fpsBoostEnabled = false
+getgenv().fpsBoostSaved = {}
+getgenv().fpsBoostGlobalState = nil
+local function saveFPSProp(obj, prop)
+    getgenv().fpsBoostSaved[obj] = getgenv().fpsBoostSaved[obj] or {}
+    if getgenv().fpsBoostSaved[obj][prop] == nil then local ok, v = pcall(function() return obj[prop] end); if ok then getgenv().fpsBoostSaved[obj][prop] = v end end
+end
+local function applyFPSObject(obj)
+    if not getgenv().fpsBoostEnabled or not obj then return end
+    if obj:IsA("BasePart") then saveFPSProp(obj,"Material"); saveFPSProp(obj,"Reflectance"); saveFPSProp(obj,"CastShadow"); pcall(function() obj.Material=Enum.Material.Plastic; obj.Reflectance=0; obj.CastShadow=false end)
+    elseif obj:IsA("Decal") or obj:IsA("Texture") then saveFPSProp(obj,"Transparency"); pcall(function() obj.Transparency=1 end)
+    elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") or obj:IsA("PostEffect") then saveFPSProp(obj,"Enabled"); pcall(function() obj.Enabled=false end) end
+end
+getgenv().fpsBoostConnection = nil
+local function setFPSBoost(state)
+    getgenv().fpsBoostEnabled = state
+    if getgenv().fpsBoostConnection then getgenv().fpsBoostConnection:Disconnect(); getgenv().fpsBoostConnection = nil end
+    if state then
+        getgenv().fpsBoostGlobalState = { GlobalShadows = Lighting.GlobalShadows, FogEnd = Lighting.FogEnd, Brightness = Lighting.Brightness }
+        pcall(function() Lighting.GlobalShadows = false; Lighting.FogEnd = 100000 end)
+        for _, obj in ipairs(workspace:GetDescendants()) do applyFPSObject(obj) end
+        for _, obj in ipairs(Lighting:GetDescendants()) do applyFPSObject(obj) end
+        getgenv().fpsBoostConnection = workspace.DescendantAdded:Connect(function(obj) task.defer(applyFPSObject, obj) end)
+    else
+        for obj, props in pairs(getgenv().fpsBoostSaved) do
+            if obj and obj.Parent then for prop, value in pairs(props) do pcall(function() obj[prop] = value end) end end
+            getgenv().fpsBoostSaved[obj] = nil
+        end
+        if getgenv().fpsBoostGlobalState then pcall(function() Lighting.GlobalShadows = getgenv().fpsBoostGlobalState.GlobalShadows; Lighting.FogEnd = getgenv().fpsBoostGlobalState.FogEnd; Lighting.Brightness = getgenv().fpsBoostGlobalState.Brightness end); getgenv().fpsBoostGlobalState = nil end
+    end
+end
+local function findBarScript(root, ...)
+    local cur = root
+    for _, name in ipairs({...}) do if not cur then return nil end; cur = cur:FindFirstChild(name) end
+    return cur
+end
+local statusGuis = {
+    Sleep   = function() return findBarScript(LocalPlayer:FindFirstChild("PlayerGui"), "SleepGui","Frame","sleep","SleepBar","sleepScript") end,
+    Hunger  = function() return findBarScript(LocalPlayer:FindFirstChild("PlayerGui"), "Hunger","Frame","Frame","Frame","HungerBarScript") end,
+    Stamina = function() return findBarScript(LocalPlayer:FindFirstChild("PlayerGui"), "Run","Frame","Frame","Frame","StaminaBarScript") end,
+}
+
+getgenv().antiCarFlingEnabled = false
+getgenv().antiCarFlingConn = nil
+getgenv().antiCarFlingSavedParts = {}
+getgenv().antiCarFlingProtected = {}
+local function restoreAntiCarFlingPart(part)
+    local saved = getgenv().antiCarFlingSavedParts[part]
+    if saved then pcall(function() if part and part.Parent then part.CanCollide=saved.CanCollide; part.CanTouch=saved.CanTouch end end); getgenv().antiCarFlingSavedParts[part]=nil end
+end
+local function protectFromFlingCar(car)
+    if not car then return end
+    getgenv().antiCarFlingProtected[car] = os.clock() + 1.25
+    for _, part in ipairs(car:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if not getgenv().antiCarFlingSavedParts[part] then getgenv().antiCarFlingSavedParts[part] = { CanCollide=part.CanCollide, CanTouch=part.CanTouch } end
+            part.CanCollide = false; part.CanTouch = false
+        end
+    end
+end
+local function getAntiFlingCars()
+    local cars = {}
+    for _, folderName in ipairs({ "CivCars","PoliceCars","NPCCars","Cars","Vehicles" }) do
+        local folder = workspace:FindFirstChild(folderName)
+        if folder then for _, car in ipairs(folder:GetChildren()) do if car:IsA("Model") then table.insert(cars, car) end end end
+    end
+    return cars
+end
+local function stopAntiCarFling()
+    getgenv().antiCarFlingEnabled = false
+    if getgenv().antiCarFlingConn then getgenv().antiCarFlingConn:Disconnect(); getgenv().antiCarFlingConn = nil end
+    for part in pairs(getgenv().antiCarFlingSavedParts) do restoreAntiCarFlingPart(part) end
+    table.clear(getgenv().antiCarFlingProtected)
+end
+local function startAntiCarFling()
+    stopAntiCarFling(); getgenv().antiCarFlingEnabled = true
+    getgenv().antiCarFlingConn = RunService.Heartbeat:Connect(function()
+        if not getgenv().antiCarFlingEnabled then return end
+        local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not hum or not root or hum.Health <= 0 then return end
+        if hum.SeatPart then return end
+        local occupiedCar = nil
+        local detectedFling = false
+        for _, car in ipairs(getAntiFlingCars()) do
+            if car ~= occupiedCar then
+                local mainPart = car.PrimaryPart or car:FindFirstChild("DriveSeat",true) or car:FindFirstChildWhichIsA("BasePart",true)
+                if mainPart then
+                    local dist = (mainPart.Position - root.Position).Magnitude
+                    local linSpd = mainPart.AssemblyLinearVelocity.Magnitude
+                    local spd = mainPart.AssemblyAngularVelocity.Magnitude
+                    if dist <= 9 and linSpd >= 40 then protectFromFlingCar(car); detectedFling = true
+                    elseif dist <= 28 and (linSpd >= 90 or spd >= 35) then protectFromFlingCar(car); detectedFling = true end
+                end
+            end
+        end
+        if detectedFling then
+            if root.AssemblyLinearVelocity.Magnitude > 120 then root.AssemblyLinearVelocity = Vector3.zero end
+            if root.AssemblyAngularVelocity.Magnitude > 30 then root.AssemblyAngularVelocity = Vector3.zero end
+        end
+        local now = os.clock()
+        for car, expires in pairs(getgenv().antiCarFlingProtected) do
+            if not car.Parent or now >= expires then
+                getgenv().antiCarFlingProtected[car] = nil
+                for part in pairs(getgenv().antiCarFlingSavedParts) do if not part.Parent or part:IsDescendantOf(car) then restoreAntiCarFlingPart(part) end end
+            end
+        end
+    end)
+end
+local function findNearestEmptyCar()
+    local char = LocalPlayer.Character; local root = char and char:FindFirstChild("HumanoidRootPart"); if not root then return nil, nil end
+    local nearestCar, nearestSeat, nearestDist = nil, nil, math.huge
+    for _, folderName in ipairs({ "CivCars","PoliceCars","NPCCars","Cars","Vehicles" }) do
+        local folder = workspace:FindFirstChild(folderName)
+        if folder then
+            for _, car in ipairs(folder:GetChildren()) do
+                if car:IsA("Model") then
+                    local seat = car:FindFirstChild("DriveSeat",true) or car:FindFirstChildWhichIsA("VehicleSeat",true)
+                    if seat and not seat.Occupant then
+                        local mainPart = car.PrimaryPart or (car:FindFirstChild("Body") and car.Body:FindFirstChild("#Weight",true)) or car:FindFirstChildWhichIsA("BasePart",true) or seat
+                        if mainPart then local d = (mainPart.Position - root.Position).Magnitude; if d < nearestDist then nearestDist=d; nearestCar=car; nearestSeat=seat end end
+                    end
+                end
+            end
+        end
+    end
+    return nearestCar, nearestSeat
+end
+
+getgenv().carFlyConf = { Enabled=false, Speed=120 }
+getgenv().cfBV, getgenv().cfBG, getgenv().cfLastCar, getgenv().cfLastSeat = nil, nil, nil, nil
+local function carFlyCleanup()
+    if getgenv().cfBV then pcall(function() getgenv().cfBV:Destroy() end); getgenv().cfBV=nil end
+    if getgenv().cfBG then pcall(function() getgenv().cfBG:Destroy() end); getgenv().cfBG=nil end
+    getgenv().cfLastCar=nil; getgenv().cfLastSeat=nil
+end
+local function carFlyAttach(seat)
+    carFlyCleanup()
+    local car = seat and seat.Parent; if not car or not car:IsA("Model") then return end
+    if not car.PrimaryPart then car.PrimaryPart = car:FindFirstChild("DriveSeat",true) or car:FindFirstChildWhichIsA("BasePart",true) end
+    local root = car.PrimaryPart; if not root then return end
+    for _, v in ipairs(car:GetDescendants()) do if v:IsA("BasePart") and not v.Name:lower():find("wheel") then pcall(function() v.CanCollide=false end) end end
+    local bv = Instance.new("BodyVelocity"); bv.MaxForce = Vector3.new(1e9,1e9,1e9); bv.Velocity = Vector3.zero; bv.Parent = root; getgenv().cfBV = bv
+    local bg = Instance.new("BodyGyro"); bg.MaxTorque = Vector3.new(1e9,1e9,1e9); bg.P=25000; bg.D=1500; bg.CFrame=root.CFrame; bg.Parent=root; getgenv().cfBG=bg
+    getgenv().cfLastCar=car; getgenv().cfLastSeat=seat
+end
+task.spawn(function()
+    while task.wait(0.15) do
+        local conf = getgenv().carFlyConf
+        if conf.Enabled then
+            local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local seat = hum and hum.SeatPart
+            if seat and seat:IsA("VehicleSeat") then if seat ~= getgenv().cfLastSeat or not getgenv().cfBV or not getgenv().cfBV.Parent then carFlyAttach(seat) end
+            elseif getgenv().cfBV or getgenv().cfBG then carFlyCleanup() end
+        elseif getgenv().cfBV or getgenv().cfBG then carFlyCleanup() end
+    end
+end)
+RunService.RenderStepped:Connect(function()
+    local conf = getgenv().carFlyConf
+    if not conf.Enabled then if getgenv().cfBV or getgenv().cfBG then carFlyCleanup() end return end
+    local root = getgenv().cfLastCar and getgenv().cfLastCar.PrimaryPart
+    if not root or not root.Parent or not getgenv().cfBV or not getgenv().cfBG then return end
+    local cam = workspace.CurrentCamera; if not cam then return end
+    pcall(function() local flatLook = Vector3.new(cam.CFrame.LookVector.X,0,cam.CFrame.LookVector.Z); if flatLook.Magnitude>0 then getgenv().cfBG.CFrame = CFrame.lookAt(root.Position, root.Position+flatLook.Unit) end end)
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then pcall(function() getgenv().cfBV.Velocity = cam.CFrame.LookVector * conf.Speed end)
+    elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then pcall(function() getgenv().cfBV.Velocity = -cam.CFrame.LookVector * conf.Speed end)
+    elseif UserInputService:IsKeyDown(Enum.KeyCode.Space) then pcall(function() getgenv().cfBV.Velocity = Vector3.new(0,conf.Speed,0) end)
+    else pcall(function() getgenv().cfBV.Velocity = Vector3.zero end) end
+end)
+getgenv().vehMods = { SpeedEnabled=false, SpeedValue=0.01, BreakEnabled=false, BreakValue=0.05, InstantStop=false }
+task.spawn(function()
+    while task.wait() do
+        local char = LocalPlayer.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local seat = hum and hum.SeatPart
+        if seat and seat:IsA("VehicleSeat") then
+            local vm = getgenv().vehMods
+            if vm.SpeedEnabled and UserInputService:IsKeyDown(Enum.KeyCode.W) then seat.AssemblyLinearVelocity = seat.AssemblyLinearVelocity * Vector3.new(1+vm.SpeedValue,1,1+vm.SpeedValue) end
+            if vm.BreakEnabled and UserInputService:IsKeyDown(Enum.KeyCode.S) then seat.AssemblyLinearVelocity = seat.AssemblyLinearVelocity * Vector3.new(1-vm.BreakValue,1,1-vm.BreakValue) end
+            if vm.InstantStop and UserInputService:IsKeyDown(Enum.KeyCode.V) then seat.AssemblyLinearVelocity = Vector3.zero; seat.AssemblyAngularVelocity = Vector3.zero end
+        end
+    end
+end)
+
+getgenv().WeaponMods = { InfiniteAmmo=false, ModifyRecoilValue=false, ModifySpreadValue=false, DisableJamming=false, InstantReload=false, InstantEquip=false, ModifyFireRate=false, Automatic=false, DamageAmplified=false, InfiniteDamage=false, ReloadSpeed=0.2, EquipSpeed=0.2, RecoilValue=100, SpreadValue=100, FireRateValue=100 }
+getgenv().GunChams, getgenv().RainbowGun, getgenv().GunChamsColor = false, false, Color3.fromRGB(0,200,0)
+getgenv().GunOriginalColors = {}
+local function applyAllWeaponMods()
+    local char = LocalPlayer.Character; if not char then return end
+    local tool = char:FindFirstChildOfClass("Tool"); if not tool or not tool:FindFirstChild("Setting") then return end
+    local ok, settings = pcall(require, tool.Setting); if not ok or type(settings) ~= "table" then return end
+    local wm = getgenv().WeaponMods
+    if not tool:GetAttribute("OriginalFireRate") then
+        tool:SetAttribute("OriginalFireRate", tonumber(settings.FireRate) or 0.1)
+        tool:SetAttribute("OriginalSpread", tonumber(settings.Spread) or 1)
+        tool:SetAttribute("OriginalSpreadX", tonumber(settings.SpreadX) or 1)
+        tool:SetAttribute("OriginalSpreadY", tonumber(settings.SpreadY) or 1)
+        tool:SetAttribute("OriginalRecoil", tonumber(settings.Recoil) or 1)
+        tool:SetAttribute("OriginalDamage", tonumber(settings.BaseDamage) or 20)
+        tool:SetAttribute("OriginalHeadshot", tonumber(settings.HeadshotMultiplier) or 2)
+        tool:SetAttribute("OriginalLimb", tonumber(settings.LimbDamageMultiplier) or 1)
+    end
+    pcall(function()
+        if wm.InfiniteAmmo then settings.Ammo=80000; settings.AmmoPerMag=80000; settings.LimitedAmmoEnabled=false; local gl=tool:FindFirstChild("GunScript_Local"); if gl and type(getsenv)=="function" then pcall(function() local env=getsenv(gl); if env and type(env.Reload)=="function" and type(debug.setupvalue)=="function" then debug.setupvalue(env.Reload,1,80000); debug.setupvalue(env.Reload,3,80000) end end) end end
+        if wm.ModifyRecoilValue then local p=math.clamp(tonumber(wm.RecoilValue) or 100,0,100)/100; settings.Recoil=tool:GetAttribute("OriginalRecoil")*p; if wm.RecoilValue<=0 then settings.CameraRecoilingEnabled=false end else settings.Recoil=tool:GetAttribute("OriginalRecoil") end
+        if wm.ModifySpreadValue then local p=math.clamp(tonumber(wm.SpreadValue) or 100,0,100)/100; settings.Spread=tool:GetAttribute("OriginalSpread")*p; settings.SpreadX=tool:GetAttribute("OriginalSpreadX")*p; settings.SpreadY=tool:GetAttribute("OriginalSpreadY")*p
+        else settings.Spread=tool:GetAttribute("OriginalSpread"); settings.SpreadX=tool:GetAttribute("OriginalSpreadX"); settings.SpreadY=tool:GetAttribute("OriginalSpreadY") end
+        if wm.ModifyFireRate then local p=math.clamp(tonumber(wm.FireRateValue) or 100,1,100)/100; settings.FireRate=math.max(tool:GetAttribute("OriginalFireRate")*p,0.02) else settings.FireRate=tool:GetAttribute("OriginalFireRate") end
+        if wm.DisableJamming then settings.JamChance=0 end
+        if wm.InstantReload then settings.ReloadTime=wm.ReloadSpeed or 0.1 end
+        if wm.InstantEquip then settings.EquipTime=wm.EquipSpeed or 0.1; settings.EquippingTime=wm.EquipSpeed or 0.1 end
+        if wm.Automatic then settings.Auto=true end
+        if wm.DamageAmplified or wm.InfiniteDamage then settings.BaseDamage=1e9; settings.HeadshotMultiplier=1e9; settings.LimbDamageMultiplier=1e9
+        else settings.BaseDamage=tool:GetAttribute("OriginalDamage"); settings.HeadshotMultiplier=tool:GetAttribute("OriginalHeadshot"); settings.LimbDamageMultiplier=tool:GetAttribute("OriginalLimb") end
+    end)
+end
+LocalPlayer.CharacterAdded:Connect(function(character) character.ChildAdded:Connect(function(c) if c:IsA("Tool") then task.defer(applyAllWeaponMods) end end) end)
+if LocalPlayer.Character then LocalPlayer.Character.ChildAdded:Connect(function(c) if c:IsA("Tool") then task.defer(applyAllWeaponMods) end end) end
+task.spawn(function() while task.wait(0.25) do pcall(applyAllWeaponMods) end end)
+local function updateGunColor()
+    if not getgenv().GunChams then return end
+    local char = LocalPlayer.Character; local tool = char and char:FindFirstChildOfClass("Tool"); if not tool then return end
+    for _, v in pairs(tool:GetDescendants()) do if v:IsA("BasePart") then if not getgenv().GunOriginalColors[v] then getgenv().GunOriginalColors[v]=v.Color end; if getgenv().RainbowGun then v.Color=Color3.fromHSV((tick()%5)/5,1,1) else v.Color=getgenv().GunChamsColor or Color3.fromRGB(0,200,0) end; v.Material=Enum.Material.Neon end end
+end
+local function restoreGunColor()
+    for part, color in pairs(getgenv().GunOriginalColors) do if part and part.Parent then part.Color=color; part.Material=Enum.Material.Plastic end end
+    getgenv().GunOriginalColors = {}
+end
+RunService.RenderStepped:Connect(function() pcall(updateGunColor) end)
+
+getgenv().VisualColorPresets = { White=Color3.fromRGB(255,255,255), Black=Color3.fromRGB(0,0,0), Red=Color3.fromRGB(255,0,0), Green=Color3.fromRGB(0,255,0), Blue=Color3.fromRGB(0,120,255), Purple=Color3.fromRGB(143,0,255), Pink=Color3.fromRGB(255,80,180), Cyan=Color3.fromRGB(0,255,255), Yellow=Color3.fromRGB(255,255,0), Orange=Color3.fromRGB(255,140,0), Lime=Color3.fromRGB(130,255,0), Gray=Color3.fromRGB(120,120,120) }
+local VisualColorNames = {}
+for n in pairs(getgenv().VisualColorPresets) do table.insert(VisualColorNames, n) end
+table.sort(VisualColorNames)
+local function getVisualColor(name, fb) return getgenv().VisualColorPresets[tostring(name or "")] or fb or Color3.fromRGB(255,255,255) end
+getgenv().ESPFlags = { Enabled=false, RenderDistance=1400, TeamColor=true, Boxes=true, BoxType="Corner", BoxColor=Color3.fromRGB(255,140,0), BoxFill=false, BoxFillColor=Color3.fromRGB(255,255,255), Healthbar=true, HealthbarNumber=false, HealthbarThickness=3, Name=true, Distance=true, Weapon=false, FriendMarker=true, FriendColor=Color3.fromRGB(0,255,0), TextSize=14, TextColor=Color3.fromRGB(245,245,245), Snaplines=false, SnaplineColor=Color3.fromRGB(255,140,0), Chams=false, ChamsColor=Color3.fromRGB(255,140,0), Skeleton=false, SkeletonColor=Color3.fromRGB(255,255,255), LookTracers=false, LookTracerColor=Color3.fromRGB(0,255,255) }
+local function createDrawing(className, props) if not Drawing then return {Visible=false, Remove=function() end} end; local ok, obj = pcall(Drawing.new, className); if not ok then return {Visible=false, Remove=function() end} end; for k,v in pairs(props or {}) do pcall(function() obj[k]=v end) end; return obj end
+getgenv().ESPObjects = {}; getgenv().HighlightObjects = {}; getgenv().ESPFriendCache = {}
+local SkeletonPairs = {{"Head","UpperTorso"},{"UpperTorso","LowerTorso"},{"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},{"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},{"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},{"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"}}
+local function createESPObject(player)
+    local flags = getgenv().ESPFlags
+    if player == LocalPlayer or getgenv().ESPObjects[player] then return end
+    local box = {}
+    for _, n in ipairs({"Top","Bottom","Left","Right","TopLeft","TopRight","BottomLeft","BottomRight"}) do box[n]=createDrawing("Line",{Visible=false, Thickness=1.6, Color=flags.BoxColor}) end
+    local skeleton = {}
+    for i=1,#SkeletonPairs do skeleton[i]=createDrawing("Line",{Visible=false, Thickness=1, Color=flags.SkeletonColor}) end
+    getgenv().ESPObjects[player] = { Box=box, Fill=createDrawing("Square",{Visible=false,Filled=true,Transparency=0.85,Color=flags.BoxFillColor}), HealthOutline=createDrawing("Square",{Visible=false,Filled=false,Color=Color3.fromRGB(0,0,0),Thickness=1}), HealthFill=createDrawing("Square",{Visible=false,Filled=true,Color=Color3.fromRGB(0,255,0)}), HealthText=createDrawing("Text",{Visible=false,Center=true,Outline=true,Size=flags.TextSize,Color=Color3.fromRGB(255,255,255)}), Name=createDrawing("Text",{Visible=false,Center=true,Outline=true,Size=flags.TextSize,Color=flags.TextColor}), FriendTag=createDrawing("Text",{Visible=false,Center=true,Outline=true,Size=flags.TextSize,Color=flags.FriendColor,Text="(F)"}), Distance=createDrawing("Text",{Visible=false,Center=true,Outline=true,Size=flags.TextSize,Color=flags.TextColor}), Weapon=createDrawing("Text",{Visible=false,Center=true,Outline=true,Size=flags.TextSize,Color=flags.TextColor}), Snapline=createDrawing("Line",{Visible=false,Thickness=1.2,Color=flags.SnaplineColor}), LookTracer=createDrawing("Line",{Visible=false,Thickness=1,Color=flags.LookTracerColor}), Skeleton=skeleton }
+end
+local function hideESPObject(obj) if not obj then return end; if obj.Box then for _, l in pairs(obj.Box) do l.Visible=false end end; if obj.Skeleton then for _, l in ipairs(obj.Skeleton) do l.Visible=false end end; for _, k in ipairs({"Fill","HealthOutline","HealthFill","HealthText","Name","FriendTag","Distance","Weapon","Snapline","LookTracer"}) do if obj[k] then obj[k].Visible=false end end end
+local function removeESPObject(player)
+    local obj = getgenv().ESPObjects[player]
+    if obj then
+        if obj.Box then for _, l in pairs(obj.Box) do pcall(function() l:Remove() end) end end
+        if obj.Skeleton then for _, l in ipairs(obj.Skeleton) do pcall(function() l:Remove() end) end end
+        for _, k in ipairs({"Fill","HealthOutline","HealthFill","HealthText","Name","FriendTag","Distance","Weapon","Snapline","LookTracer"}) do if obj[k] then pcall(function() obj[k]:Remove() end) end end
+        getgenv().ESPObjects[player] = nil
+    end
+    if getgenv().HighlightObjects[player] then pcall(function() getgenv().HighlightObjects[player]:Destroy() end); getgenv().HighlightObjects[player]=nil end
+    getgenv().ESPFriendCache[player] = nil
+end
+local function getESPColor(player, def) if getgenv().ESPFlags.TeamColor and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then return Color3.fromRGB(0,120,255) end; return def end
+local function isESPUserFriend(target) if not target or target == LocalPlayer then return false end; if getgenv().ESPFriendCache[target] == nil then local ok, isFriend = pcall(function() return LocalPlayer:IsFriendsWith(target.UserId) end); getgenv().ESPFriendCache[target] = ok and isFriend == true or false end; return getgenv().ESPFriendCache[target] end
+local function updateLine(line, from, to, color) if not line then return end; line.From=from; line.To=to; line.Color=color; line.Visible=true end
+for _, p in ipairs(Players:GetPlayers()) do createESPObject(p) end
+Players.PlayerAdded:Connect(createESPObject); Players.PlayerRemoving:Connect(removeESPObject)
+local _espHiddenOnce = false
+local function hideESPForPlayer(player) hideESPObject(getgenv().ESPObjects[player]); if getgenv().HighlightObjects[player] then getgenv().HighlightObjects[player].Enabled=false end end
+local function updateESPForPlayer(player, cam)
+    if player == LocalPlayer then hideESPForPlayer(player) return end
+    createESPObject(player)
+    local obj = getgenv().ESPObjects[player]
+    local char = player.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local root = char and char:FindFirstChild("HumanoidRootPart")
+    local flags = getgenv().ESPFlags
+    if not (obj and char and hum and root and hum.Health > 0) then hideESPForPlayer(player) return end
+    local localRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local distance = localRoot and (root.Position - localRoot.Position).Magnitude or (root.Position - cam.CFrame.Position).Magnitude
+    if distance > flags.RenderDistance then hideESPForPlayer(player) return end
+    local rootPos, onScreen = cam:WorldToViewportPoint(root.Position)
+    if not onScreen or rootPos.Z <= 0 then hideESPForPlayer(player) return end
+    local size = char:GetExtentsSize()
+    local top = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, size.Y/2, 0)).Position)
+    local bottom = cam:WorldToViewportPoint((root.CFrame * CFrame.new(0, -size.Y/2, 0)).Position)
+    if top.Z <= 0 or bottom.Z <= 0 then hideESPForPlayer(player) return end
+    local height = math.max(math.abs(bottom.Y - top.Y), 2); local width = math.max(height * 0.58, 2)
+    local x, y = top.X - width/2, top.Y
+    local boxColor = getESPColor(player, flags.BoxColor); local textColor = flags.TextColor
+    if flags.BoxFill then obj.Fill.Position=Vector2.new(x,y); obj.Fill.Size=Vector2.new(width,height); obj.Fill.Color=flags.BoxFillColor; obj.Fill.Transparency=0.85; obj.Fill.Visible=true else obj.Fill.Visible=false end
+    if flags.Boxes then
+        local tl,tr=Vector2.new(x,y),Vector2.new(x+width,y); local bl,br=Vector2.new(x,y+height),Vector2.new(x+width,y+height); local corner=math.min(width,height)*0.28
+        if flags.BoxType=="Full" then
+            updateLine(obj.Box.Top,tl,tr,boxColor); updateLine(obj.Box.Bottom,bl,br,boxColor); updateLine(obj.Box.Left,tl,bl,boxColor); updateLine(obj.Box.Right,tr,br,boxColor)
+            obj.Box.TopLeft.Visible,obj.Box.TopRight.Visible=false,false; obj.Box.BottomLeft.Visible,obj.Box.BottomRight.Visible=false,false
+        else
+            obj.Box.Top.Visible,obj.Box.Bottom.Visible=false,false; obj.Box.Left.Visible,obj.Box.Right.Visible=false,false
+            updateLine(obj.Box.TopLeft,tl,tl+Vector2.new(corner,0),boxColor); updateLine(obj.Box.Left,tl,tl+Vector2.new(0,corner),boxColor)
+            updateLine(obj.Box.TopRight,tr,tr-Vector2.new(corner,0),boxColor); updateLine(obj.Box.Right,tr,tr+Vector2.new(0,corner),boxColor)
+            updateLine(obj.Box.BottomLeft,bl,bl+Vector2.new(corner,0),boxColor); updateLine(obj.Box.Bottom,bl,bl-Vector2.new(0,corner),boxColor)
+            updateLine(obj.Box.BottomRight,br,br-Vector2.new(corner,0),boxColor); updateLine(obj.Box.Top,br,br-Vector2.new(0,corner),boxColor)
+        end
+    else for _, l in pairs(obj.Box) do l.Visible=false end end
+    if flags.Healthbar then
+        local pct=math.clamp(hum.Health/math.max(hum.MaxHealth,1),0,1); local bh=height*pct
+        obj.HealthOutline.Position=Vector2.new(x-7,y); obj.HealthOutline.Size=Vector2.new(flags.HealthbarThickness+2,height); obj.HealthOutline.Visible=true
+        obj.HealthFill.Position=Vector2.new(x-6,y+height-bh); obj.HealthFill.Size=Vector2.new(flags.HealthbarThickness,bh); obj.HealthFill.Color=Color3.fromRGB(255-(255*pct),255*pct,0); obj.HealthFill.Visible=true
+        if flags.HealthbarNumber then obj.HealthText.Text=tostring(math.floor(hum.Health)); obj.HealthText.Position=Vector2.new(x-12,y+height-bh); obj.HealthText.Size=flags.TextSize; obj.HealthText.Visible=true else obj.HealthText.Visible=false end
+    else obj.HealthOutline.Visible=false; obj.HealthFill.Visible=false; obj.HealthText.Visible=false end
+    local bottomOffset=2
+    if flags.Name then
+        obj.Name.Text = player.DisplayName ~= player.Name and (player.DisplayName.." (@"..player.Name..")") or player.Name
+        obj.Name.Position=Vector2.new(x+width/2,y-flags.TextSize-2); obj.Name.Size=flags.TextSize; obj.Name.Color=textColor; obj.Name.Visible=true
+        if flags.FriendMarker and isESPUserFriend(player) then
+            local nameWidth=(#tostring(obj.Name.Text)*flags.TextSize*0.28); pcall(function() if obj.Name.TextBounds then nameWidth=obj.Name.TextBounds.X/2 end end)
+            obj.FriendTag.Text="(F)"; obj.FriendTag.Position=Vector2.new((x+width/2)-nameWidth-10,y-flags.TextSize-2); obj.FriendTag.Size=flags.TextSize; obj.FriendTag.Color=flags.FriendColor; obj.FriendTag.Visible=true
+        else obj.FriendTag.Visible=false end
+    else obj.Name.Visible=false; obj.FriendTag.Visible=false end
+    if flags.Distance then obj.Distance.Text=tostring(math.floor(distance)).."m"; obj.Distance.Position=Vector2.new(x+width/2,y+height+bottomOffset); obj.Distance.Size=flags.TextSize; obj.Distance.Color=textColor; obj.Distance.Visible=true; bottomOffset=bottomOffset+flags.TextSize+1 else obj.Distance.Visible=false end
+    if flags.Weapon then local tool=char:FindFirstChildOfClass("Tool"); obj.Weapon.Text=tool and ("["..tool.Name.."]") or "[None]"; obj.Weapon.Position=Vector2.new(x+width/2,y+height+bottomOffset); obj.Weapon.Size=flags.TextSize; obj.Weapon.Color=textColor; obj.Weapon.Visible=true else obj.Weapon.Visible=false end
+    if flags.Snaplines then obj.Snapline.From=Vector2.new(cam.ViewportSize.X/2,cam.ViewportSize.Y); obj.Snapline.To=Vector2.new(rootPos.X,rootPos.Y); obj.Snapline.Color=getESPColor(player,flags.SnaplineColor); obj.Snapline.Visible=true else obj.Snapline.Visible=false end
+    if flags.LookTracers and char:FindFirstChild("Head") then
+        local head=char.Head; local p1,o1=cam:WorldToViewportPoint(head.Position); local p2,o2=cam:WorldToViewportPoint(head.Position+head.CFrame.LookVector*10)
+        if o1 and o2 and p1.Z>0 and p2.Z>0 then obj.LookTracer.From=Vector2.new(p1.X,p1.Y); obj.LookTracer.To=Vector2.new(p2.X,p2.Y); obj.LookTracer.Color=flags.LookTracerColor; obj.LookTracer.Visible=true else obj.LookTracer.Visible=false end
+    else obj.LookTracer.Visible=false end
+    if flags.Skeleton then
+        for i,pair in ipairs(SkeletonPairs) do
+            local a,b = char:FindFirstChild(pair[1]),char:FindFirstChild(pair[2])
+            if a and b and obj.Skeleton[i] then
+                local pa,oa=cam:WorldToViewportPoint(a.Position); local pb,ob=cam:WorldToViewportPoint(b.Position)
+                if oa and ob and pa.Z>0 and pb.Z>0 then obj.Skeleton[i].From=Vector2.new(pa.X,pa.Y); obj.Skeleton[i].To=Vector2.new(pb.X,pb.Y); obj.Skeleton[i].Color=flags.SkeletonColor; obj.Skeleton[i].Visible=true else obj.Skeleton[i].Visible=false end
+            elseif obj.Skeleton[i] then obj.Skeleton[i].Visible=false end
+        end
+    else for _, l in ipairs(obj.Skeleton) do l.Visible=false end end
+    if flags.Chams then
+        local h = getgenv().HighlightObjects[player]
+        if not h or not h.Parent then h=Instance.new("Highlight"); h.Name="TacoESPHighlight"; h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; h.Parent=game:GetService("CoreGui"); getgenv().HighlightObjects[player]=h end
+        h.Adornee=char; h.FillColor=getESPColor(player,flags.ChamsColor); h.OutlineColor=Color3.fromRGB(255,255,255); h.FillTransparency=0.55; h.OutlineTransparency=0.1; h.Enabled=true
+    elseif getgenv().HighlightObjects[player] then getgenv().HighlightObjects[player].Enabled=false end
+end
+RunService.RenderStepped:Connect(function()
+    local flags = getgenv().ESPFlags
+    if not flags.Enabled then if not _espHiddenOnce then _espHiddenOnce=true; for _, p in ipairs(Players:GetPlayers()) do hideESPForPlayer(p) end end return end
+    _espHiddenOnce = false
+    local cam = workspace.CurrentCamera; if not cam then return end
+    for _, p in ipairs(Players:GetPlayers()) do local ok = pcall(updateESPForPlayer, p, cam); if not ok then hideESPForPlayer(p) end end
+end)
+
+getgenv().hitboxEnabled = false
+getgenv().hitboxSize = 30
+getgenv().hitboxOriginalSizes = {}
+local function isPlayerInVehicle(char)
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    if hum.SeatPart then return true end
+    if hum.Sit then return true end
+    if char:FindFirstChildOfClass("VehicleSeat") then return true end
+    local parent = char.Parent
+    if parent and parent:FindFirstChildOfClass("VehicleSeat") then return true end
+    return false
+end
+local function applyHitbox(char)
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    if not getgenv().hitboxOriginalSizes[char] then getgenv().hitboxOriginalSizes[char] = hrp.Size end
+    if getgenv().hitboxEnabled and not isPlayerInVehicle(char) then
+        hrp.Size = Vector3.new(getgenv().hitboxSize, getgenv().hitboxSize, getgenv().hitboxSize)
+        hrp.Transparency = 1
+        hrp.CanCollide = false
+    else
+        local orig = getgenv().hitboxOriginalSizes[char]
+        if orig then hrp.Size = orig; getgenv().hitboxOriginalSizes[char] = nil end
+    end
+end
+RunService.Heartbeat:Connect(function()
+    if not getgenv().hitboxEnabled then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then applyHitbox(player.Character) end
+    end
+end)
+
+getgenv().dupeBlacklist = { ["Fists"]=true, ["Fist"]=true, ["Phone"]=true, ["Car Keys"]=true, ["Car keys"]=true, ["Bandage"]=true, ["762s"]=true, ["556s"]=true, ["Extended"]=true, ["T shirt"]=true, ["Combat"]=true, ["Weight"]=true, ["Shiesty"]=true, ["Lemonade"]=true }
+getgenv().InventoryRemote = ReplicatedStorage:FindFirstChild("Inventory")
+getgenv().BackpackRemote = ReplicatedStorage:FindFirstChild("BackpackRemote")
+local function GetActiveSafe()
+    local function isMine(owner) if not owner then return false end; if owner:IsA("ObjectValue") then return owner.Value==LocalPlayer end; local v=tostring(owner.Value or ""); return v==LocalPlayer.Name or v==LocalPlayer.DisplayName end
+    local function findOwnedHouseAndSafe()
+        for _, owner in ipairs(workspace:GetDescendants()) do
+            if (owner.Name:lower()=="owner") and (owner:IsA("StringValue") or owner:IsA("ObjectValue")) and isMine(owner) then
+                local ancestor=owner.Parent
+                while ancestor and ancestor~=workspace do local safe=ancestor:FindFirstChild("Safe",true); if safe then return ancestor,safe end; ancestor=ancestor.Parent end
+            end
+        end
+        return nil,nil
+    end
+    local house,mySafe=findOwnedHouseAndSafe(); if not mySafe then return nil,nil,nil end
+    local safePart = mySafe:IsA("BasePart") and mySafe or (mySafe:FindFirstChild("Union",true) or mySafe:FindFirstChildWhichIsA("BasePart",true))
+    return mySafe,nil,safePart and safePart.CFrame or nil
+end
+local function GetSafeItems() local items={}; local invData=LocalPlayer:FindFirstChild("InvData"); if invData then for _,c in ipairs(invData:GetChildren()) do table.insert(items,c.Name) end end; table.sort(items); return items end
+local function GetLockedTools() local tools={}; if LocalPlayer:FindFirstChild("Backpack") then for _,t in pairs(LocalPlayer.Backpack:GetChildren()) do if t:IsA("Tool") and not getgenv().dupeBlacklist[t.Name] then table.insert(tools,t.Name) end end end; return tools end
+local function FirePromptsInArea(range, nameFilter)
+    local char=LocalPlayer.Character; local root=char and char:FindFirstChild("HumanoidRootPart"); if not root then return 0 end
+    local fired=0; local filter=nameFilter and tostring(nameFilter):lower() or nil
+    for _,prompt in ipairs(workspace:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+            local parent=prompt.Parent; local part=parent and (parent:IsA("BasePart") and parent or parent:FindFirstChildWhichIsA("BasePart",true)); local pPos=part and part.Position
+            if pPos and (pPos-root.Position).Magnitude < range then
+                local text=(tostring(prompt.Name).." "..tostring(prompt.ActionText).." "..tostring(prompt.ObjectText)):lower()
+                local ancestor=parent
+                for _=1,5 do if not ancestor then break end; text=text.." "..tostring(ancestor.Name):lower(); ancestor=ancestor.Parent end
+                if not filter or text:find(filter,1,true) then
+                    local oldHold,oldLOS=prompt.HoldDuration,prompt.RequiresLineOfSight
+                    pcall(function() prompt.HoldDuration=0; prompt.RequiresLineOfSight=false; fireproximityprompt(prompt) end)
+                    pcall(function() prompt.HoldDuration=oldHold; prompt.RequiresLineOfSight=oldLOS end)
+                    fired=fired+1
+                end
+            end
+        end
+    end
+    return fired
+end
+local function SilentBypassTeleport(targetCFrame)
+    local char=LocalPlayer.Character; local root=char and char:FindFirstChild("HumanoidRootPart"); local hum=char and char:FindFirstChildOfClass("Humanoid"); if not root then return end
+    if hum then pcall(function() hum:ChangeState(0) end) end
+    local sWait=tick(); repeat task.wait() until not LocalPlayer:GetAttribute("LastACPos") or (tick()-sWait>1)
+    pcall(function() root.CFrame=targetCFrame; root.AssemblyLinearVelocity=Vector3.zero; root.AssemblyAngularVelocity=Vector3.zero end)
+    task.wait(0.5)
+    if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp); hum:ChangeState(Enum.HumanoidStateType.Running) end) end
+end
+local function OpenOwnedSafe(SafeFolder, safeCF)
+    if not SafeFolder or not safeCF then return false end
+    SilentBypassTeleport(safeCF*CFrame.new(0,2,0)); task.wait(0.45)
+    local fired=0
+    for _,prompt in ipairs(SafeFolder:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+            local oldHold,oldLOS=prompt.HoldDuration,prompt.RequiresLineOfSight
+            local ok=pcall(function() prompt.HoldDuration=0; prompt.RequiresLineOfSight=false; fireproximityprompt(prompt) end)
+            pcall(function() prompt.HoldDuration=oldHold; prompt.RequiresLineOfSight=oldLOS end)
+            if ok then fired=fired+1 end
+        end
+    end
+    if fired==0 then fired=FirePromptsInArea(18,"safe") end
+    if fired==0 then fired=FirePromptsInArea(7) end
+    return fired>0
+end
+
+local function TakeFromSafe(itemName)
+    local SafeFolder,_,safeCF=GetActiveSafe(); if not SafeFolder or not safeCF then return false end
+    local char=LocalPlayer.Character; local root=char and char:FindFirstChild("HumanoidRootPart"); if not root then return false end
+    local origLoc=root.CFrame; local success=false
+    pcall(function()
+        SilentBypassTeleport(safeCF*CFrame.new(0,2,0)); task.wait(0.3)
+        getgenv().InventoryRemote:FireServer("Change",itemName,"Inv",SafeFolder); task.wait(0.5)
+        SilentBypassTeleport(origLoc); task.wait(0.5); success=true
+    end)
+    return success
+end
+
+local function TakeSelectedItemBypass(itemName)
+    local SafeFolder,_,safeCF=GetActiveSafe(); if not SafeFolder or not safeCF then return false end
+    local char=LocalPlayer.Character; local root=char and char:FindFirstChild("HumanoidRootPart"); if not root then return false end
+    local origLoc=root.CFrame
+    local success=false
+    task.spawn(function()
+        pcall(function()
+            getgenv().TacoTeleport(safeCF * CFrame.new(0, 2, 0))
+            task.wait(0.4)
+            for _, prompt in ipairs(SafeFolder:GetDescendants()) do
+                if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                    local oldHold, oldLOS = prompt.HoldDuration, prompt.RequiresLineOfSight
+                    pcall(function()
+                        prompt.HoldDuration = 0
+                        prompt.RequiresLineOfSight = false
+                        fireproximityprompt(prompt)
+                    end)
+                    pcall(function()
+                        prompt.HoldDuration = oldHold
+                        prompt.RequiresLineOfSight = oldLOS
+                    end)
+                end
+            end
+            task.wait(0.3)
+            if getgenv().InventoryRemote then
+                getgenv().InventoryRemote:FireServer("Change", itemName, "Inv", SafeFolder)
+            end
+            task.wait(0.5)
+            getgenv().TacoTeleport(origLoc)
+            task.wait(0.4)
+            success = true
+        end)
+    end)
+    local t0 = os.clock()
+    repeat task.wait(0.05) until success or (os.clock() - t0 > 6)
+    return success
+end
+
+local function SafeDupeOnce(itemName, returnCFrame)
+    local SafeFolder,_,safeCF=GetActiveSafe(); if not SafeFolder or not safeCF then return false end
+    pcall(function()
+        SilentBypassTeleport(safeCF*CFrame.new(0,2,0)); task.wait(0.3)
+        task.spawn(function() getgenv().BackpackRemote:InvokeServer("Store",itemName) end)
+        task.spawn(function() getgenv().InventoryRemote:FireServer("Change",itemName,"Backpack",SafeFolder) end)
+        task.wait(0.6); SilentBypassTeleport(returnCFrame); task.wait(1.2)
+        getgenv().BackpackRemote:InvokeServer("Grab",itemName); task.wait(0.5)
+    end)
+    return true
+end
+getgenv().autoDupeActive=false; getgenv().dupeCounter=0; getgenv().selectedDupeItem=nil; getgenv().customDupeAmount=1
+local function DoDupe(targetSpeed)
+    local char=LocalPlayer.Character; local root=char and char:FindFirstChild("HumanoidRootPart"); if not root then return end
+    local origLoc=root.CFrame; getgenv().autoDupeActive=true
+    if not getgenv().selectedDupeItem or getgenv().selectedDupeItem=="None" or getgenv().selectedDupeItem=="(All locked tools)" then
+        local locked=GetLockedTools(); if #locked==0 then getgenv().autoDupeActive=false return end
+        task.spawn(function()
+            local SafeFolder,_,safeCF=GetActiveSafe(); if not SafeFolder then getgenv().autoDupeActive=false return end
+            if safeCF then SilentBypassTeleport(safeCF*CFrame.new(0,2,0)); task.wait(0.7); FirePromptsInArea(15,"Safe") end
+            SilentBypassTeleport(origLoc); task.wait(0.5)
+            local i=1
+            while getgenv().autoDupeActive and (targetSpeed==math.huge or i<=targetSpeed) do
+                local idx=((i-1)%#locked)+1; SafeDupeOnce(locked[idx],origLoc); getgenv().dupeCounter=getgenv().dupeCounter+1; task.wait(0.2); i=i+1
+            end
+            getgenv().autoDupeActive=false
+        end)
+    else
+        task.spawn(function()
+            if getgenv().BackpackRemote then pcall(function() getgenv().BackpackRemote:InvokeServer("Grab",getgenv().selectedDupeItem) end) end
+            task.wait(0.5); local hum=char and char:FindFirstChildOfClass("Humanoid"); if hum then hum:UnequipTools() end; task.wait(0.3)
+            local SafeFolder,_,safeCF=GetActiveSafe(); if not SafeFolder then getgenv().autoDupeActive=false return end
+            if safeCF then SilentBypassTeleport(safeCF*CFrame.new(0,2,0)); task.wait(0.7); FirePromptsInArea(15,"Safe") end
+            SilentBypassTeleport(origLoc); task.wait(0.5)
+            local i=1
+            while getgenv().autoDupeActive and (targetSpeed==math.huge or i<=targetSpeed) do
+                SafeDupeOnce(getgenv().selectedDupeItem,origLoc); getgenv().dupeCounter=getgenv().dupeCounter+1; task.wait(0.2); i=i+1
+            end
+            getgenv().autoDupeActive=false
+        end)
+    end
+end
+
+local function SafeTP()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    task.spawn(function()
+        local SafeFolder, _, safeCF = GetActiveSafe()
+        if not SafeFolder or not safeCF then return end
+        getgenv().TacoTeleport(safeCF * CFrame.new(0, 2, 0))
+        task.wait(0.5)
+        local fired = 0
+        for _, prompt in ipairs(SafeFolder:GetDescendants()) do
+            if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                local oldHold, oldLOS = prompt.HoldDuration, prompt.RequiresLineOfSight
+                local ok = pcall(function()
+                    prompt.HoldDuration = 0
+                    prompt.RequiresLineOfSight = false
+                    fireproximityprompt(prompt)
+                end)
+                pcall(function()
+                    prompt.HoldDuration = oldHold
+                    prompt.RequiresLineOfSight = oldLOS
+                end)
+                if ok then fired = fired + 1 end
+            end
+        end
+        if fired == 0 then fired = FirePromptsInArea(18, "safe") end
+        if fired == 0 then FirePromptsInArea(7) end
+    end)
+end
+
+getgenv().autoDropEnabled=false
+local function ToggleAutoDrop(state)
+    getgenv().autoDropEnabled=state; if not state then return end
+    task.spawn(function()
+        local dropRemote=ReplicatedStorage:FindFirstChild("DropItemRemote")
+        while getgenv().autoDropEnabled do
+            local bp=LocalPlayer:FindFirstChild("Backpack"); local ch=LocalPlayer.Character
+            if not bp or not ch then task.wait(0.5) else
+                local found=false
+                for _,item in ipairs(bp:GetChildren()) do
+                    if not getgenv().autoDropEnabled then break end
+                    if item:IsA("Tool") and not getgenv().dupeBlacklist[item.Name] then
+                        found=true; local hum=ch:FindFirstChildOfClass("Humanoid")
+                        if hum then
+                            hum:EquipTool(item); local dt=tick()
+                            repeat
+                                if dropRemote then pcall(function() dropRemote:FireServer(item.Name) end); pcall(function() dropRemote:FireServer(item) end); pcall(function() dropRemote:FireServer() end) end
+                                task.wait(0.2)
+                            until not item:IsDescendantOf(ch) or not getgenv().autoDropEnabled or (tick()-dt>3)
+                            task.wait(0.1)
+                        end
+                    end
+                end
+                if not found then task.wait(1) end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+local PawnRemote = ReplicatedStorage:FindFirstChild("PawnRemote")
+local Backpack = LocalPlayer:WaitForChild("Backpack",5) or LocalPlayer:FindFirstChild("Backpack")
+getgenv().dumpsterRunning=false; getgenv().dumpsterTask=nil
+if Backpack then Backpack.ChildAdded:Connect(function(child) if getgenv().dumpsterRunning then pcall(function() if PawnRemote then PawnRemote:FireServer(child.Name) end end) end end) end
+local function startDumpsterAutofarm()
+    if getgenv().dumpsterTask then return end
+    getgenv().dumpsterRunning=true
+    getgenv().dumpsterTask=task.spawn(function()
+        while getgenv().dumpsterRunning do
+            local dumpsters={}
+            for _,v in pairs(workspace:GetDescendants()) do if v:IsA("Part") and (v.Name=="DumpsterPromt" or v.Name:lower():find("trash") or v.Name:lower():find("dumpster")) then local p=v:FindFirstChildWhichIsA("ProximityPrompt",true); if p then table.insert(dumpsters,{part=v,prompt=p}) end end end
+            for _,e in ipairs(dumpsters) do
+                if not getgenv().dumpsterRunning then break end
+                if e.part and e.prompt and e.part:IsDescendantOf(workspace) then
+                    getgenv().TacoTeleport(CFrame.new(e.part.Position+Vector3.new(0,3,0))); task.wait(0.6); pcall(function() fireproximityprompt(e.prompt) end); task.wait(1)
+                end
+            end
+            task.wait(2)
+        end
+        getgenv().dumpsterTask=nil
+    end)
+    if Backpack then for _,item in pairs(Backpack:GetChildren()) do pcall(function() if PawnRemote then PawnRemote:FireServer(item.Name) end end) end end
+end
+getgenv().studioAutoFarm=false
+task.spawn(function()
+    while task.wait(0.5) do
+        if getgenv().studioAutoFarm then
+            local sf=workspace:FindFirstChild("StudioPay") and workspace.StudioPay:FindFirstChild("Money")
+            if sf then
+                for _,m in pairs(sf:GetChildren()) do for _,part in pairs(m:GetChildren()) do if part:IsA("BasePart") then local p=part:FindFirstChild("Prompt"); if p and p:IsA("ProximityPrompt") and p.Enabled then getgenv().TacoTeleport(part.CFrame+Vector3.new(0,3,0)); task.wait(0.2); pcall(function() fireproximityprompt(p) end); task.wait(0.1) end end end end
+            end
+        end
+    end
+end)
+getgenv().autoSellLoot=false
+task.spawn(function()
+    while task.wait(1) do
+        if getgenv().autoSellLoot then pcall(function() local pr=ReplicatedStorage:FindFirstChild("PawnRemote"); if pr then for _,item in pairs(LocalPlayer.Backpack:GetChildren()) do pr:FireServer(item.Name) end end end) end
+    end
+end)
+getgenv().autoStealLootbags=false
+task.spawn(function()
+    while task.wait(1) do
+        if getgenv().autoStealLootbags then
+            local st=workspace:FindFirstChild("Storage")
+            if st then
+                for _,item in ipairs(st:GetChildren()) do
+                    if not getgenv().autoStealLootbags then break end
+                    local pr=item:FindFirstChild("stealprompt",true)
+                    if pr and pr:IsA("ProximityPrompt") and pr.Enabled then
+                        local ch=LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait(); local root=ch:FindFirstChild("HumanoidRootPart"); if not root then break end
+                        local old=root.CFrame; local tp=pr.Parent:IsA("BasePart") and pr.Parent or item:FindFirstChildWhichIsA("BasePart",true); if not tp then break end
+                        getgenv().TacoTeleport(tp.CFrame+Vector3.new(0,2,0)); task.wait(0.3); fireproximityprompt(pr); task.wait(0.3); getgenv().TacoTeleport(old); task.wait(0.5)
+                    end
+                end
+            end
+        end
+    end
+end)
+getgenv().autoGrabMoney=false; getgenv().autoPickupBags=false; getgenv().disableBlood=false
+task.spawn(function()
+    while task.wait(1) do
+        if getgenv().autoGrabMoney then
+            local d=workspace:FindFirstChild("Dollas")
+            if d then
+                for _,item in ipairs(d:GetChildren()) do
+                    if not getgenv().autoGrabMoney then break end
+                    if (item.Name=="DeadMoney" or item.Name=="Money") and item:IsA("BasePart") then
+                        local pr=item:FindFirstChildWhichIsA("ProximityPrompt",true)
+                        if pr and pr.Enabled then
+                            local ch=LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait(); local root=ch:FindFirstChild("HumanoidRootPart"); if not root then break end
+                            local old=root.CFrame
+                            getgenv().TacoTeleport(item.CFrame+Vector3.new(0,2,0)); task.wait(0.3); fireproximityprompt(pr); task.wait(0.3); getgenv().TacoTeleport(old); task.wait(0.5)
+                        end
+                    end
+                end
+            end
+        end
+        if getgenv().autoPickupBags and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local st=workspace:FindFirstChild("Storage")
+            if st then for _,v in next,st:GetChildren() do if v:IsA("MeshPart") then if v:FindFirstChild("PlayerName") and v.PlayerName.Value==LocalPlayer.Name then break end; if (v.Position-LocalPlayer.Character.HumanoidRootPart.Position).Magnitude<5 then local p=v:FindFirstChild("stealprompt"); if p and p:IsA("ProximityPrompt") then pcall(function() fireproximityprompt(p) end) end end end end end
+        end
+        if getgenv().disableBlood then local pg=LocalPlayer:FindFirstChild("PlayerGui"); local bg=pg and pg:FindFirstChild("BloodGui"); if bg then bg.Enabled=false end end
+    end
+end)
+local function generateMaxIllegalMoney()
+    local function getFruitCup()
+        for _,container in ipairs({LocalPlayer.Backpack,LocalPlayer.Character}) do if container then for _,tool in pairs(container:GetChildren()) do if tool:IsA("Tool") and tool.Name=="Ice-Fruit Cupz" then local cupPart=tool:FindFirstChild("IceFruit Cup"); if cupPart and cupPart:FindFirstChild("IceFruit PunchMedium") and cupPart["IceFruit PunchMedium"].Transparency~=1 then return true,tool end end end end end
+        return false,nil
+    end
+    local found,cup=getFruitCup()
+    local oldCF=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.CFrame
+    local sell=workspace:FindFirstChild("IceFruit Sell")
+    if cup and found and oldCF and sell then
+        if cup.Parent==LocalPlayer.Backpack then LocalPlayer.Character.Humanoid:EquipTool(cup); task.wait(1) end
+        getgenv().TacoTeleport(sell.CFrame); task.wait(0.5)
+        for _=1,4000 do task.spawn(function() pcall(function() fireproximityprompt(sell.ProximityPrompt) end) end) end
+        getgenv().TacoTeleport(oldCF); task.wait(8); return true
+    end
+    local items={"FijiWater","FreshWater","Ice-Fruit Bag","Ice-Fruit Cupz"}; local stove
+    if workspace:FindFirstChild("CookingPots") then for _,v in pairs(workspace.CookingPots:GetChildren()) do if v:IsA("Model") then local prompt=v:FindFirstChildWhichIsA("ProximityPrompt",true); if prompt and prompt.ActionText=="Turn On" and prompt.Enabled then stove=v; break end end end end
+    for _,item in ipairs(items) do if not LocalPlayer.Backpack:FindFirstChild(item) then pcall(function() ReplicatedStorage:WaitForChild("ExoticShopRemote"):InvokeServer(item) end); task.wait(1) end end
+    for _,item in ipairs(items) do if not LocalPlayer.Backpack:FindFirstChild(item) then return false,'Missing items' end end
+    if not stove then return false,'No stove' end
+    getgenv().TacoTeleport(stove.CookPart.CFrame); task.wait(1)
+    pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack,false) end)
+    LocalPlayer.Character.HumanoidRootPart.Anchored=true; task.wait(1.5)
+    pcall(function() fireproximityprompt(stove:FindFirstChildWhichIsA("ProximityPrompt",true)) end); task.wait(2)
+    for _,item in ipairs({"FijiWater","FreshWater","Ice-Fruit Bag"}) do
+        if LocalPlayer.Backpack:FindFirstChild(item) then LocalPlayer.Character.Humanoid:EquipTool(LocalPlayer.Backpack[item]); task.wait(1); pcall(function() fireproximityprompt(stove:FindFirstChildWhichIsA("ProximityPrompt",true)) end); task.wait(3) end
+    end
+    pcall(function() repeat task.wait() until stove.CookPart.Steam.LoadUI.Enabled==false end)
+    if not LocalPlayer.Character:FindFirstChild("Ice-Fruit Cupz") and LocalPlayer.Backpack:FindFirstChild("Ice-Fruit Cupz") then LocalPlayer.Character.Humanoid:EquipTool(LocalPlayer.Backpack["Ice-Fruit Cupz"]); task.wait(1) end
+    task.wait(1); pcall(function() fireproximityprompt(stove:FindFirstChildWhichIsA("ProximityPrompt",true)) end); task.wait(3)
+    LocalPlayer.Character.HumanoidRootPart.Anchored=false
+    if sell then
+        getgenv().TacoTeleport(sell.CFrame); task.wait(1); LocalPlayer.Character.HumanoidRootPart.Anchored=true; task.wait(1.5)
+        if not LocalPlayer.Character:FindFirstChild("Ice-Fruit Cupz") and LocalPlayer.Backpack:FindFirstChild("Ice-Fruit Cupz") then LocalPlayer.Character.Humanoid:EquipTool(LocalPlayer.Backpack["Ice-Fruit Cupz"]); task.wait(1) end
+        sell.ProximityPrompt.HoldDuration=0
+        for _=1,4000 do task.spawn(function() pcall(function() fireproximityprompt(sell.ProximityPrompt) end) end) end
+    end
+    LocalPlayer.Character.HumanoidRootPart.Anchored=false
+    pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack,true) end)
+    return true
+end
+local function getGoodCleaner()
+    if not workspace:FindFirstChild("1# Map") then return nil end
+    local counterInstance
+    for _,v in pairs(workspace["1# Map"]:GetChildren()) do if v:FindFirstChild("CounterM") then counterInstance=v; break end end
+    if not counterInstance then return nil end
+    for _,v in pairs(counterInstance:GetChildren()) do local cp=v:FindFirstChild("CashPrompt",true); local gp=v:FindFirstChild("GrabPrompt",true); if cp and cp.Enabled and cp.ObjectText=="Count Bread" and gp and not gp.Enabled then return v end end
+end
+local function cleanAllFilthyMoney()
+    local player=LocalPlayer
+    if not player:FindFirstChild("stored") or not player.stored:FindFirstChild("FilthyStack") or player.stored.FilthyStack.Value==0 then return end
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
+    local cleaner=getGoodCleaner(); if not cleaner then return end
+    local character=player.Character; local humanoid=character:FindFirstChildOfClass("Humanoid")
+    pcall(function() getgenv().TacoTeleport(cleaner.WorldPivot or (cleaner.CFrame or cleaner:GetPivot())) end); task.wait(0.4)
+    pcall(function() fireproximityprompt(cleaner:FindFirstChild("CashPrompt",true)) end)
+    local onObj=cleaner:FindFirstChild("On",true); if onObj then repeat task.wait() until onObj.Color==Color3.fromRGB(74,156,69) else task.wait(0.5) end
+    task.wait(0.5); pcall(function() fireproximityprompt(cleaner:FindFirstChild("CashPrompt",true)) end); task.wait(0.25)
+    pcall(function() getgenv().TacoTeleport(cleaner.WorldPivot or (cleaner.CFrame or cleaner:GetPivot())) end); task.wait(0.4)
+    repeat task.wait() until player.Backpack:FindFirstChild("MoneyReady")
+    humanoid:EquipTool(player.Backpack["MoneyReady"])
+    repeat task.wait(1) pcall(function() fireproximityprompt(cleaner:FindFirstChild("GrabPrompt",true)) end) until not character:FindFirstChild("MoneyReady")
+    repeat task.wait() until player.Backpack:FindFirstChild("BagOfMoney")
+    pcall(function() getgenv().TacoTeleport(CFrame.new(-1217.30,253.88,-3635.04)) end); task.wait(0.4)
+    if player.Backpack:FindFirstChild("BagOfMoney") then humanoid:EquipTool(player.Backpack["BagOfMoney"]) end
+    task.wait(1)
+    pcall(function() local atm=workspace:FindFirstChild("ATMMoney"); local prompt=atm and atm:FindFirstChild("Prompt",true); if prompt then fireproximityprompt(prompt) end end)
+end
+getgenv().teleportLocations = {
+    ["DealerShip"]=CFrame.new(-401.993713,253.414108,-1248.838013),["New Laundry"]=CFrame.new(-1216.24,253.88,-3969.89),["New Seller"]=CFrame.new(-965.27,260.19,-4244.83),["Market"]=CFrame.new(-405.17,334.31,-562.63),["New Penthouse"]=CFrame.new(-1488.06,476.30,-3747.01),["Backpack Shop"]=CFrame.new(-703.0,254.0,-720.0),["Studio"]=CFrame.new(93408.45,14484.90,570.14),["RPT"]=CFrame.new(-1744.10,236.95,-596.03),["Random House"]=CFrame.new(-1228.93,261.04,-3758.50),["Dollar General"]=CFrame.new(-413.66,253.82,-1055.57),["Hospital"]=CFrame.new(-1587.46,254.27,18.42),["Mansion"]=CFrame.new(-789.10,253.57,1380.76),["Bank"]=CFrame.new(-1231,254,-3657),["Money Wash"]=CFrame.new(-1006.0,254.0,-701.0),["Safe Items"]=CFrame.new(-939.0,254.0,-556.0),["Pawn Shop"]=CFrame.new(-1049.6431,253.5367,-814.2697),["Mr Money Man"]=CFrame.new(-1008.0662,262.1141,55.1336),["GunShop 1"]=CFrame.new(92959.867188,122098.5,17244.462891),["GunShop 1 Lobby"]=CFrame.new(-1002.4224,253.6382,-803.9125),["GunShop 2"]=CFrame.new(66195.445312,123615.710938,5750.282715),["GunShop 2 Lobby"]=CFrame.new(-224.381836,283.803436,-794.717407),["GunShop 3"]=CFrame.new(60820.3086,87609.1484,-351.4746),["GunShop 4"]=CFrame.new(72421.914062,128855.820312,-1080.611084),["NYPDWarehouse"]=CFrame.new(-1585.0,268.0,-3264.0),["Chicken Wings"]=CFrame.new(-957.9142,253.5367,-815.9442),["Deli"]=CFrame.new(-755.811401,254.692749,-687.118164),["Drip Store"]=CFrame.new(67462.0,10489.214844,546.194153),["Soda Warehouse"]=CFrame.new(-187.855042,284.625214,-291.341919),["Soda Supplies"]=CFrame.new(-403.09906,254.20343,-580.043762),["Exotic Dealer"]=CFrame.new(-1523.56543,273.972992,-990.657532),["Switch Seller"]=CFrame.new(-1446.216675,256.059814,2189.876221),["Bank Tools"]=CFrame.new(-374.0,334.0,-554.0),["Construction Site"]=CFrame.new(-1731.8307,370.8123,-1176.8387),["Prison"]=CFrame.new(-1135.0464,254.716,-3330.9954),["McDonalds"]=CFrame.new(-450,254,-950),["Ice Box"]=CFrame.new(-1244,254,-3987),["MarGreens"]=CFrame.new(-407,255,-398),["Feds Room"]=CFrame.new(-1441.790405,255.036514,-3132.597412),["Studio Robbery"]=CFrame.new(93427.515625,14484.905273,566.670105),["TrailerPark"]=CFrame.new(-1522.769043,253.16095,2344.959473),["Woody's Hotel"]=CFrame.new(-1022.619629,325.8407,-908.91571),["Apartment"]=CFrame.new(-990.680664,253.707275,-281.321564)
+}
+local teleportNames = {}
+for n in pairs(getgenv().teleportLocations) do table.insert(teleportNames,n) end
+table.sort(teleportNames); getgenv().selectedTeleportName = teleportNames[1]
+getgenv().TargetUtilities = { SelectedPlayer=nil, SpectatePlayer=false, BringingPlayer=false, BringingNearestPlayer=false }
+getgenv().TargetPlayerNames = getTargetPlayerList()
+getgenv().TargetUtilities.SelectedPlayer = getgenv().TargetPlayerNames[1] or 'None'
+
+local _kp_busy = false
+local function _kp_hasGunInHand()
+    local char = LocalPlayer.Character
+    if not char then return false end
+    for _, v in pairs(char:GetChildren()) do
+        if v:IsA("Tool") and (v:FindFirstChild("GunScript_Local") or v:FindFirstChild("GunScript_Server")) then return true end
+    end
+    return false
+end
+local function _kp_findGunTool()
+    local char = LocalPlayer.Character
+    if char then
+        for _, v in pairs(char:GetChildren()) do if v:IsA("Tool") and v:FindFirstChild("GunScript_Local") then return v end end
+    end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, v in pairs(bp:GetChildren()) do if v:IsA("Tool") and v:FindFirstChild("GunScript_Local") then return v end end
+    end
+    return nil
+end
+local function _kp_checkgun()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+    for _, v in pairs(char:GetChildren()) do if v:IsA("Tool") and v:FindFirstChild("GunScript_Local") then return v end end
+    local gun = _kp_findGunTool()
+    if gun and gun.Parent ~= char then pcall(function() hum:EquipTool(gun) end) end
+    return gun
+end
+local function _kp_KillGunMod(target, hpart, damage)
+    if not target or not target.Parent then return false end
+    local tool = _kp_checkgun()
+    if not tool or not tool.Parent then return false end
+    local tc = target.Character
+    if not tc or not tc.Parent then return false end
+    local hum = tc:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    local head = tc:FindFirstChild(hpart or "Head") or tc:FindFirstChild("HumanoidRootPart")
+    if not head then return false end
+    if not damage or damage == math.huge then
+        local sd
+        pcall(function()
+            local st = tool:FindFirstChild("Setting")
+            if st then local s = require(st) if s then sd = tonumber(s.Damage) or tonumber(s.BaseDamage) end end
+        end)
+        damage = sd or 200
+    end
+    local handle = tool:FindFirstChild("Handle")
+    if not handle then return false end
+    local gsl = tool:FindFirstChild("GunScript_Local")
+    local gss = tool:FindFirstChild("GunScript_Server")
+    local fp = handle:FindFirstChild("GunFirePoint") or handle
+    local origin = fp.Position
+    local dir = (head.Position - origin)
+    dir = dir.Magnitude > 0 and dir.Unit or Vector3.new(0, 0, -1)
+    local infOrigin = head.Position - dir * 3
+    local ig = gss and gss:FindFirstChild("IgniteScript")
+    local ic = gss and gss:FindFirstChild("IcifyScript")
+    pcall(function()
+        local setting = tool:FindFirstChild("Setting")
+        if setting then
+            local s = require(setting)
+            if s then
+                s.LimitedAmmoEnabled = false
+                s.Ammo = 10000; s.AmmoPerMag = 10000; s.MagCount = 10000
+                s.StoredAmmo = 10000; s.MaxAmmo = 10000
+            end
+        end
+    end)
+    pcall(function() ReplicatedStorage.VisualizeMuzzle:FireServer(handle, true, {false, 7, Color3.new(1, 1.1098, 0), 15, true, 0.02}, gsl and gsl:FindFirstChild("MuzzleEffect")) end)
+    pcall(function()
+        ReplicatedStorage.VisualizeBullet:FireServer(
+            tool, handle, dir, fp,
+            {true, {112139677907598, 92977228204408, 112139677907598, 92977228204408}, 1, 1, 3.5, gsl and gsl:FindFirstChild("HitEffect"), true},
+            {true, {0, 0, 0, 0, 0, 0}, 1, 1, 1, gsl and gsl:FindFirstChild("BloodEffect")},
+            {true, 0.2, {3696144972}, true, 7, 1},
+            {false, 8, true, {163064102}, 1, 1.5, 1, false, gsl and gsl:FindFirstChild("ExplosionEffect")},
+            {false, Vector3.new(0.1, 0, 0), Vector3.new(-0.1, 0, 0), gsl and gsl:FindFirstChild("TracerEffect"), nil, gsl and gsl:FindFirstChild("ParticleEffect"), 300, 500, 0, Vector3.zero, Vector3.new(0.4, 0.4, 0.4), Color3.new(0.639, 0.635, 0.611), 1, Enum.Material.Neon, Enum.PartType.Cylinder, false, 6696543809, 0, Vector3.new(0.007, 0.007, 0.007)},
+            {true, {269514869, 269514887, 269514807, 269514817}, 0.5, 1, 1.5, 100},
+            {false, 3, Color3.new(1, 0.647, 0.6), 6, true}
+        )
+    end)
+    pcall(function()
+        ReplicatedStorage.InflictTarget:FireServer(
+            tool, LocalPlayer, hum, head, damage,
+            {0, 0, false, false, ig, ic, 100, 100},
+            {false, 5, 3}, head,
+            {false, {1930359546}, 1, 1.5, 1},
+            infOrigin, dir
+        )
+    end)
+    return true
+end
+local function _kp_wsSlimeKill(p)
+    if not p or not p.Parent or p == LocalPlayer then return end
+    local myChar = LocalPlayer.Character
+    local hrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if not _kp_checkgun() then return end
+    local tc = p.Character
+    local th = tc and tc:FindFirstChild("HumanoidRootPart")
+    local thum = tc and tc:FindFirstChildOfClass("Humanoid")
+    if not th or not thum or thum.Health <= 0 then return end
+    local original = hrp.CFrame
+    local wasAnchored = hrp.Anchored
+    pcall(function()
+        getgenv().TacoTeleport(th.CFrame); task.wait(0.08)
+        hrp.Anchored = true
+        local deadline = os.clock() + 3
+        local shots = 0
+        while os.clock() < deadline do
+            if not p.Parent or not tc.Parent or not thum.Parent or thum.Health <= 0 then break end
+            if not _kp_KillGunMod(p, "Head", math.huge) then if not _kp_checkgun() then break end end
+            shots = shots + 1; task.wait(0.06)
+            if shots >= 6 and thum.Health <= 0 then break end
+        end
+    end)
+    pcall(function()
+        local h2 = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if h2 then h2.Anchored = wasAnchored; getgenv().TacoTeleport(original) end
+    end)
+end
+local function _kp_KillAll()
+    local myChar = LocalPlayer.Character
+    local hrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if not _kp_checkgun() then return end
+    local original = hrp.CFrame
+    local wasAnchored = hrp.Anchored
+    local targets = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then table.insert(targets, p) end
+    end
+    pcall(function()
+        for _, p in ipairs(targets) do
+            if not p.Parent then continue end
+            local pc = p.Character
+            local phum = pc and pc:FindFirstChildOfClass("Humanoid")
+            local phrp = pc and pc:FindFirstChild("HumanoidRootPart")
+            if phum and phum.Health > 0 and phrp then
+                if not _kp_checkgun() then break end
+                pcall(function() getgenv().TacoTeleport(phrp.CFrame) end)
+                task.wait(0.05)
+                local cur = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if not cur then break end
+                pcall(function()
+                    cur.Anchored = true
+                    local deadline = os.clock() + 2
+                    local fired = 0
+                    while os.clock() < deadline do
+                        if not p.Parent or not pc.Parent or not phum.Parent or phum.Health <= 0 then break end
+                        if _kp_KillGunMod(p, "Head", math.huge) then
+                            fired = fired + 1
+                        else
+                            if not _kp_checkgun() then break end
+                        end
+                        task.wait(0.05)
+                        if fired >= 3 and phum.Health <= 0 then break end
+                    end
+                end)
+                pcall(function()
+                    local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if h then h.Anchored = false end
+                end)
+                task.wait(0.05)
+            end
+        end
+    end)
+    pcall(function()
+        local hf = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hf then hf.Anchored = wasAnchored; getgenv().TacoTeleport(original) end
+    end)
+end
+
+Window:AddCategory("Player")
+local PlayerTab = Window:AddTab("Player", NeverLose.Icons.user)
+local P_Main    = PlayerTab:AddSubtab("Main")
+local P_Target  = PlayerTab:AddSubtab("Target")
+local P_QuickBuy  = PlayerTab:AddSubtab("Quick Buy")
+
+local mg = P_Main:AddGroup("Movement", NeverLose.Icons.hammer, "Left", 280)
+mg:AddCheckbox({ Name="Fly", Default=false, Flag="fly_enabled", Callback=function(v) flyEnabled=v; if v then task.spawn(setupFly) else cleanupFly() end end })
+mg:AddSlider({ Name="Fly Speed", Min=20, Max=300, Default=80, Flag="fly_speed", Callback=function(v) flySpeed=v end })
+mg:AddCheckbox({ Name="Infinite Jump", Default=false, Flag="infjump_enabled", Callback=function(v) getgenv().infJumpEnabled=v end })
+mg:AddCheckbox({ Name="Noclip", Default=false, Flag="noclip_enabled", Callback=function(v) setNoclip(v) end })
+mg:AddCheckbox({ Name="Enable JumpPower", Default=false, Flag="jp_enabled", Callback=function(v) getgenv().jumpPowerEnabled=v; applyJumpPower() end })
+mg:AddSlider({ Name="JumpPower", Min=50, Max=500, Default=50, Flag="jp_val", Callback=function(v) getgenv().jumpPowerValue=v; if getgenv().jumpPowerEnabled then applyJumpPower() end end })
+
+local lg = P_Main:AddGroup("Local Player", NeverLose.Icons.ghost, "Right", 380)
+lg:AddCheckbox({ Name="Anti-AFK", Default=false, Flag="afk_enabled", Callback=function(v) getgenv().antiAfkEnabled=v end })
+lg:AddCheckbox({ Name="Faster Respawn", Default=false, Flag="respawn_enabled", Callback=function(v) getgenv().fasterRespawn=v end })
+lg:AddCheckbox({ Name="Respawn Where Died", Default=false, Flag="respawn_died_enabled", Callback=function(v) getgenv().respawnWhereDied=v; if not v then getgenv().respawnDeathCF=nil end end })
+lg:AddCheckbox({ Name="Anti Car Fling", Default=false, Flag="antiFling_enabled", Callback=function(v) if v then startAntiCarFling() else stopAntiCarFling() end end })
+lg:AddCheckbox({ Name="Disable Camera Bobbing", Default=false, Flag="bob_enabled", Callback=function(v) getgenv().noCameraBob=v end })
+lg:AddCheckbox({ Name="Anti Jump Cooldown", Default=false, Flag="ajc_enabled", Callback=function(v) setAntiJumpCooldown(v) end })
+lg:AddCheckbox({ Name="Instant Interaction", Default=false, Flag="instant_int_enabled", Callback=function(v) getgenv().promptsDisabledOnce=v; refreshPrompts(v) end })
+lg:AddCheckbox({ Name="No Rent Pay", Default=false, Flag="norent_enabled", Callback=function(v) setNoRentPay(v) end })
+lg:AddCheckbox({ Name="FPS Boost", Default=false, Flag="fpsboost_enabled", Callback=function(v) setFPSBoost(v) end })
+lg:AddCheckbox({ Name="Infinite Sleep", Default=false, Flag="inf_sleep", Callback=function(v) local s=statusGuis.Sleep and statusGuis.Sleep(); if s then s.Enabled=not v end end })
+lg:AddCheckbox({ Name="Infinite Hunger", Default=false, Flag="inf_hunger", Callback=function(v) local s=statusGuis.Hunger and statusGuis.Hunger(); if s then s.Enabled=not v end end })
+lg:AddCheckbox({ Name="Infinite Stamina", Default=false, Flag="inf_stamina", Callback=function(v) local s=statusGuis.Stamina and statusGuis.Stamina(); if s then s.Enabled=not v end end })
+lg:AddCheckbox({ Name="Anti Lose Items", Default=false, Flag="anti_lose_items", Callback=function(v) AntiLoseEnabled = v end })
+lg:AddCheckbox({ Name="Anti Car Knockback", Default=false, Flag="anti_car_kb", Callback=function(v)
+    getgenv()._antiCarKB = v
+    if v then
+        if not getgenv()._antiCarKBConn then
+            getgenv()._antiCarKBConn = RunService.Heartbeat:Connect(function()
+                if not getgenv()._antiCarKB then return end
+                pcall(function()
+                    local c = LocalPlayer.Character; if not c then return end
+                    local hrp = c:FindFirstChild("HumanoidRootPart"); local hum = c:FindFirstChildOfClass("Humanoid")
+                    if not hrp or not hum then return end
+                    if hum.SeatPart then return end
+                    hum.PlatformStand = false
+                    local st = hum:GetState()
+                    if st == Enum.HumanoidStateType.Physics or st == Enum.HumanoidStateType.FallingDown or st == Enum.HumanoidStateType.Ragdoll then
+                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    end
+                    local vel = hrp.AssemblyLinearVelocity
+                    if math.sqrt(vel.X*vel.X + vel.Z*vel.Z) > 90 then
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, math.max(vel.Y, -10), 0)
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                    end
+                end)
+            end)
+        end
+    else
+        if getgenv()._antiCarKBConn then getgenv()._antiCarKBConn:Disconnect(); getgenv()._antiCarKBConn = nil end
+    end
+end })
+
+getgenv().antiCuffEnabled = false
+getgenv().antiCuffConn = nil
+local function startAntiCuff()
+    if getgenv().antiCuffConn then return end
+    getgenv().antiCuffConn = task.spawn(function()
+        while getgenv().antiCuffEnabled do
+            task.wait(0.25)
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hasKeys = char and char:FindFirstChild("CuffKeys") ~= nil
+                local isPolice = LocalPlayer:GetAttribute("GamepassPolice") ~= nil
+                for _, prompt in ipairs(CollectionService:GetTagged("BreakoutPrompt")) do
+                    if prompt:IsA("ProximityPrompt") and prompt.Parent then
+                        if hasKeys and not isPolice then
+                            prompt.Enabled = not (char and prompt:IsDescendantOf(char))
+                        else
+                            prompt.Enabled = true
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+local function stopAntiCuff()
+    getgenv().antiCuffEnabled = false
+    getgenv().antiCuffConn = nil
+end
+lg:AddCheckbox({
+    Name = "Anti Cuff",
+    Default = false,
+    Flag = "anti_cuff_enabled",
+    Callback = function(v)
+        getgenv().antiCuffEnabled = v
+        if v then startAntiCuff() else stopAntiCuff() end
+    end
+})
+
+getgenv().antiArrestEnabled = false
+getgenv().antiArrestConns   = {}
+local function clearAntiArrestConns()
+    for _, c in ipairs(getgenv().antiArrestConns) do
+        pcall(function() c:Disconnect() end)
+    end
+    getgenv().antiArrestConns = {}
+end
+local function killArrestGui(root)
+    if not root then return end
+    for _, d in ipairs(root:GetDescendants()) do
+        if d:IsA("ScreenGui") and d.Name:lower():find("arrest") then
+            d.Enabled = false
+            pcall(function() d:Destroy() end)
+        elseif d.Name == "arresting" then
+            if d:IsA("GuiObject") then d.Visible = false end
+        end
+    end
+end
+local function startAntiArrest()
+    clearAntiArrestConns()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return end
+    killArrestGui(pg)
+    table.insert(getgenv().antiArrestConns, pg.DescendantAdded:Connect(function(d)
+        if not getgenv().antiArrestEnabled then return end
+        if d.Name == "arresting" and d:IsA("GuiObject") then
+            task.defer(function() if d and d.Parent then d.Visible = false end end)
+        end
+        if d:IsA("ScreenGui") and d.Name:lower():find("arrest") then
+            task.defer(function() if d and d.Parent then d.Enabled = false end end)
+        end
+    end))
+    table.insert(getgenv().antiArrestConns, RunService.RenderStepped:Connect(function()
+        if not getgenv().antiArrestEnabled then return end
+        local pg2 = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg2 then return end
+        for _, g in ipairs(pg2:GetChildren()) do
+            if g:IsA("ScreenGui") then
+                local f = g:FindFirstChild("Frame", true)
+                if f and f:FindFirstChild("arresting") then
+                    local a = f.arresting
+                    if a:IsA("GuiObject") and a.Visible then a.Visible = false end
+                end
+            end
+        end
+    end))
+end
+local function stopAntiArrest()
+    getgenv().antiArrestEnabled = false
+    clearAntiArrestConns()
+end
+lg:AddCheckbox({
+    Name = "Anti Arrest (Hide GUI)",
+    Default = false,
+    Flag = "anti_arrest_enabled",
+    Callback = function(v)
+        getgenv().antiArrestEnabled = v
+        if v then startAntiArrest() else stopAntiArrest() end
+    end
+})
+
+lg:AddButton({ Name="Go To Doctor", Callback=function()
+    if not workspace:FindFirstChild("HospitalPart") then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = workspace.HospitalPart.CFrame
+        task.wait(0.05)
+        local tries = 0
+        repeat
+            task.wait(0.05)
+            pcall(function() fireproximityprompt(workspace.HospitalPart.Prompt, 1) end)
+            tries = tries + 1
+        until LocalPlayer:GetAttribute("LastACPos") == nil or tries > 200
+    end
+end })
+lg:AddButton({ Name="Steal Nearest Car", Callback=function()
+    task.spawn(function()
+        local char=LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hum=char and char:FindFirstChildOfClass("Humanoid"); local root=char and char:FindFirstChild("HumanoidRootPart"); if not hum or not root then return end
+        local car,seat=findNearestEmptyCar(); if not car or not seat then return end
+        getgenv().TacoTeleport(seat.CFrame*CFrame.new(0,2,0)); task.wait(0.35)
+        local currentHum=LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid"); if not currentHum then return end
+        if currentHum.SeatPart==seat then return end
+        pcall(function() seat:Sit(currentHum) end); task.wait(0.2)
+        if currentHum.SeatPart~=seat then pcall(function() local cs=currentHum.SeatPart; if cs and cs:IsA("VehicleSeat") then currentHum.Sit=false end end); task.wait(0.1); pcall(function() seat:Sit(currentHum) end) end
+    end)
+end })
+
+local tg = P_Target:AddGroup("Target Selection", NeverLose.Icons.crosshairs, "Left", 260)
+local TargetDropdown = tg:AddDropdown({ Name="Select Player", Items=getgenv().TargetPlayerNames, Default=getgenv().TargetUtilities.SelectedPlayer, Flag="target_dropdown", Callback=function(v) getgenv().TargetUtilities.SelectedPlayer=tostring(v) end })
+tg:AddCheckbox({ Name="Spectate Player", Default=false, Flag="target_spec", Callback=function(v) getgenv().TargetUtilities.SpectatePlayer=v end })
+tg:AddCheckbox({ Name="Bring Nearest Player", Default=false, Flag="target_bring_nearest", Callback=function(v) getgenv().TargetUtilities.BringingNearestPlayer=v end })
+tg:AddCheckbox({ Name="Bring Player", Default=false, Flag="target_bring", Callback=function(v) getgenv().TargetUtilities.BringingPlayer=v end })
+tg:AddButton({ Name="Kick Player", Callback=function() local t=getSelectedTargetPlayer(); if t then kickPlayerByName(t.Name) end end })
+tg:AddButton({ Name="Teleport To Player", Callback=function() local t=getSelectedTargetPlayer(); if t and t.Character and t.Character:FindFirstChild("HumanoidRootPart") then getgenv().TacoTeleport(t.Character.HumanoidRootPart.CFrame*CFrame.new(3,0,0)) end end })
+tg:AddButton({ Name="Kill Player", Callback=function()
+    if _kp_busy then return end
+    local target = getSelectedTargetPlayer()
+    if not target or not isValidTargetPlayer(target) then return end
+    if not _kp_hasGunInHand() then return end
+    _kp_busy = true
+    task.spawn(function() pcall(function() _kp_wsSlimeKill(target) end); _kp_busy = false end)
+end })
+tg:AddButton({ Name="Kill All", Callback=function()
+    if _kp_busy then return end
+    if not _kp_hasGunInHand() then return end
+    _kp_busy = true
+    task.spawn(function() pcall(function() _kp_KillAll() end); _kp_busy = false end)
+end })
+tg:AddButton({ Name="Pass Gun to Local Player", Callback=function()
+    task.spawn(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local gun = nil
+        for _, v in pairs(char:GetChildren()) do
+            if v:IsA("Tool") and (v:FindFirstChild("GunScript_Local") or v:FindFirstChild("GunScript_Server")) then
+                gun = v; break
+            end
+        end
+        if not gun then return end
+        local dropRemote = ReplicatedStorage:FindFirstChild("DropRemote")
+        local dropItemRemote = ReplicatedStorage:FindFirstChild("DropItemRemote")
+        pcall(function() if dropRemote then dropRemote:FireServer("Drop") end end)
+        pcall(function() if dropRemote then dropRemote:FireServer(gun.Name) end end)
+        pcall(function() if dropItemRemote then dropItemRemote:FireServer(gun.Name) end end)
+        pcall(function() if dropItemRemote then dropItemRemote:FireServer(gun) end end)
+        pcall(function() if dropItemRemote then dropItemRemote:FireServer() end end)
+        task.wait(0.3)
+        if gun.Parent == char then
+            pcall(function() hum:UnequipTools() end)
+        end
+    end)
+end })
+
+local twg = P_Target:AddGroup("Whitelist", NeverLose.Icons.crown, "Right", 240)
+local TargetWhitelistDropdown = twg:AddDropdown({ Name="Select Player", Items=getgenv().TargetPlayerNames, Default=getgenv().TargetPlayerNames[1], Flag="target_whitelist_select", Callback=function() end })
+local TargetWhitelistList = twg:AddDropdown({ Name="Whitelisted Players", Items={'None'}, Default='None', Flag="target_whitelist_list", Callback=function() end })
+local function refreshTargetWhitelistList()
+    local values = {}
+    for name, _ in pairs(getgenv().whitelist) do table.insert(values, name) end
+    table.sort(values, function(a,b) return a:lower() < b:lower() end)
+    if #values == 0 then values = { 'None' } end
+    pcall(function() TargetWhitelistList:Refresh(values) end)
+end
+task.defer(refreshTargetWhitelistList)
+twg:AddButton({ Name="Whitelist Player", Callback=function()
+    local pick = TargetWhitelistDropdown:Get()
+    if not pick or pick == "None" then return end
+    if not Players:FindFirstChild(pick) then return end
+    getgenv().whitelist[pick] = true
+    refreshTargetWhitelistList(); refreshWhitelistDropdown()
+end })
+twg:AddButton({ Name="Unwhitelist Player", Callback=function()
+    local pick = TargetWhitelistList:Get()
+    if not pick or pick == "None" then return end
+    getgenv().whitelist[pick] = nil
+    refreshTargetWhitelistList(); refreshWhitelistDropdown()
+end })
+
+local pqb = P_QuickBuy:AddGroup("Quick Buys", NeverLose.Icons.save, "Left", 260)
+pqb:AddButton({ Name="Buy Bandage", Callback=function()
+    pcall(function()
+        local ex = ReplicatedStorage:FindFirstChild("ExoticShopRemote")
+        if ex then ex:InvokeServer("Bandage") end
+    end)
+end })
+pqb:AddButton({ Name="Buy Lemonade", Callback=function()
+    pcall(function()
+        local ex = ReplicatedStorage:FindFirstChild("ExoticShopRemote")
+        if ex then ex:InvokeServer("Lemonade") end
+    end)
+end })
+pqb:AddButton({ Name="Buy Shiesty", Callback=function()
+    pcall(function()
+        local sr = ReplicatedStorage:FindFirstChild("ShopRemote")
+        if sr then sr:InvokeServer("Shiesty") end
+    end)
+end })
+local AmmoDropdown, AmmoRefresh = pqb:AddDropdown({
+    Name = "Ammo Type",
+    Items = {"9mm", "7.62", "5.56", ".Extended", ".Drum", ".FNMag", ".10mm"},
+    Default = "9mm",
+    Flag = "quick_buy_ammo_type",
+    Callback = function() end,
+})
+pqb:AddButton({ Name="Buy Ammo", Callback=function()
+    local ammo = AmmoDropdown:Get() or "9mm"
+    pcall(function()
+        local ex = ReplicatedStorage:FindFirstChild("ExoticShopRemote")
+        if ex then ex:InvokeServer(tostring(ammo)) end
+    end)
+end })
+local GunDropdown, GunRefresh = pqb:AddDropdown({
+    Name = "Gun Type",
+    Items = {"Draco", "ClearMagDrac", "ARPistol", "223Tan", "HPBrowning Ext", "Glock17", "Glock22", "SpringField XD"},
+    Default = "Draco",
+    Flag = "quick_buy_gun_type",
+    Callback = function() end,
+})
+pqb:AddButton({ Name="Buy Gun", Callback=function()
+    local gun = GunDropdown:Get() or "Draco"
+    pcall(function()
+        local sr = ReplicatedStorage:FindFirstChild("ShopRemote5")
+        if sr then sr:InvokeServer(tostring(gun)) end
+    end)
+end })
+
+Window:AddCategory("Main")
+local MainTab = Window:AddTab("Main", NeverLose.Icons.hammer)
+local M_Bank  = MainTab:AddSubtab("Bank")
+local M_Veh   = MainTab:AddSubtab("Vehicle")
+local M_Farm  = MainTab:AddSubtab("Auto Farms")
+
+local mb = M_Bank:AddGroup("Bank", NeverLose.Icons.save, "Left", 250)
+local bankAmountLabel = mb:AddLabel('Bank Amount: $0')
+pcall(function() local stored=LocalPlayer:WaitForChild("stored",5); if stored and stored:FindFirstChild("Bank") then stored.Bank:GetPropertyChangedSignal("Value"):Connect(function() pcall(function() bankAmountLabel:SetText('Bank Amount: $'..tostring(stored.Bank.Value)) end) end) end end)
+mb:AddTextbox({ Name="Withdraw Amount", Placeholder="Max 90,000", Flag="bank_withdraw", Callback=function(v) local a=tonumber(v); if a and a>0 and a<=90000 then pcall(function() local BA=ReplicatedStorage:FindFirstChild("BankAction"); if BA then BA:FireServer("with",a) end end) end end })
+mb:AddTextbox({ Name="Deposit Amount", Placeholder="Max 30,000", Flag="bank_deposit", Callback=function(v) local a=tonumber(v); if a and a>0 and a<=30000 then pcall(function() local BA=ReplicatedStorage:FindFirstChild("BankAction"); if BA then BA:FireServer("depo",a) end end) end end })
+mb:AddCheckbox({ Name="Auto Deposit 30K", Default=false, Flag="auto_depo", Callback=function(v) getgenv().autoDeposit=v; if v then task.spawn(function() local BA=ReplicatedStorage:WaitForChild("BankAction"); while getgenv().autoDeposit do pcall(function() BA:FireServer("depo",30000) end); task.wait(3) end end) end end })
+mb:AddCheckbox({ Name="Auto Withdraw 90K", Default=false, Flag="auto_with", Callback=function(v) getgenv().autoWithdraw=v; if v then task.spawn(function() local BA=ReplicatedStorage:WaitForChild("BankAction"); while getgenv().autoWithdraw do pcall(function() BA:FireServer("with",90000) end); task.wait(3) end end) end end })
+
+local mv = M_Veh:AddGroup("Vehicle", NeverLose.Icons.feather, "Left", 250)
+mv:AddCheckbox({ Name="Car Fly (Shift-Lock Style)", Default=false, Flag="carfly_enabled", Callback=function(v) getgenv().carFlyConf.Enabled=v end })
+mv:AddSlider({ Name="Car Fly Speed", Min=20, Max=300, Default=120, Flag="carfly_speed", Callback=function(v) getgenv().carFlyConf.Speed=v end })
+mv:AddCheckbox({ Name="Vehicle Speed Boost", Default=false, Flag="veh_speed_enabled", Callback=function(v) getgenv().vehMods.SpeedEnabled=v end })
+mv:AddSlider({ Name="Speed Multiplier", Min=1, Max=25, Default=5, Flag="veh_speed_val", Callback=function(v) getgenv().vehMods.SpeedValue=v/1000 end })
+mv:AddCheckbox({ Name="Vehicle Brakes", Default=false, Flag="veh_brake_enabled", Callback=function(v) getgenv().vehMods.BreakEnabled=v end })
+mv:AddSlider({ Name="Brake Multiplier", Min=10, Max=300, Default=50, Flag="veh_brake_val", Callback=function(v) getgenv().vehMods.BreakValue=v/1000 end })
+mv:AddCheckbox({ Name="Instant Stop (V)", Default=false, Flag="veh_stop_enabled", Callback=function(v) getgenv().vehMods.InstantStop=v end })
+
+local mf = M_Farm:AddGroup("Auto Farms", NeverLose.Icons.hammer, "Left", 300)
+mf:AddCheckbox({ Name="Dumpster Autofarm", Default=false, Flag="af_dumpster", Callback=function(v) if v then startDumpsterAutofarm() else getgenv().dumpsterRunning=false end end })
+mf:AddCheckbox({ Name="Studio Autofarm", Default=false, Flag="af_studio", Callback=function(v) getgenv().studioAutoFarm=v end })
+mf:AddCheckbox({ Name="Auto Sell Loot (Pawn)", Default=false, Flag="af_sell", Callback=function(v) getgenv().autoSellLoot=v end })
+mf:AddCheckbox({ Name="Auto Steal Lootbags", Default=false, Flag="af_steal", Callback=function(v) getgenv().autoStealLootbags=v end })
+mf:AddCheckbox({ Name="Auto Grab Dropped Money", Default=false, Flag="af_money", Callback=function(v) getgenv().autoGrabMoney=v end })
+mf:AddCheckbox({ Name="Auto Pickup Nearby Bags", Default=false, Flag="af_bags", Callback=function(v) getgenv().autoPickupBags=v end })
+mf:AddCheckbox({ Name="Disable Blood Effects", Default=false, Flag="af_blood", Callback=function(v) getgenv().disableBlood=v end })
+
+Window:AddCategory("Combat")
+local CombatTab = Window:AddTab("Combat", NeverLose.Icons.crosshairs)
+local C_Guns = CombatTab:AddSubtab("Guns")
+local C_Hitbox = CombatTab:AddSubtab("Hitbox")
+local C_Aimbot = CombatTab:AddSubtab("Aimbot")
+
+local cg = C_Guns:AddGroup("Weapon Modifications", NeverLose.Icons.hammer, "Left", 340)
+local function bindGunToggle(text, key, flag, group) group:AddCheckbox({ Name=text, Default=false, Flag=flag, Callback=function(v) getgenv().WeaponMods[key]=v; if key=="InfiniteDamage" then getgenv().WeaponMods.DamageAmplified=v end; pcall(applyAllWeaponMods) end }) end
+bindGunToggle('Infinite Ammo','InfiniteAmmo','wm_ammo',cg)
+bindGunToggle('Infinite Damage','InfiniteDamage','wm_dmg',cg)
+bindGunToggle('Instant Reload','InstantReload','wm_reload',cg)
+bindGunToggle('Instant Equip','InstantEquip','wm_equip',cg)
+bindGunToggle('Fully Automatic','Automatic','wm_auto',cg)
+bindGunToggle('Disable Jamming','DisableJamming','wm_jam',cg)
+cg:AddCheckbox({ Name="Custom Recoil", Default=false, Flag="wm_rec_tune", Callback=function(v) getgenv().WeaponMods.ModifyRecoilValue=v; pcall(applyAllWeaponMods) end })
+cg:AddSlider({ Name="Recoil %", Min=0, Max=100, Default=100, Flag="wm_rec_val", Callback=function(v) getgenv().WeaponMods.RecoilValue=v; pcall(applyAllWeaponMods) end })
+cg:AddCheckbox({ Name="Custom Spread", Default=false, Flag="wm_spread_tune", Callback=function(v) getgenv().WeaponMods.ModifySpreadValue=v; pcall(applyAllWeaponMods) end })
+cg:AddSlider({ Name="Spread %", Min=0, Max=100, Default=100, Flag="wm_spread_val", Callback=function(v) getgenv().WeaponMods.SpreadValue=v; pcall(applyAllWeaponMods) end })
+cg:AddCheckbox({ Name="Custom Fire Rate", Default=false, Flag="wm_fire_tune", Callback=function(v) getgenv().WeaponMods.ModifyFireRate=v; pcall(applyAllWeaponMods) end })
+cg:AddSlider({ Name="Fire Rate %", Min=1, Max=100, Default=100, Flag="wm_fire_val", Callback=function(v) getgenv().WeaponMods.FireRateValue=v; pcall(applyAllWeaponMods) end })
+
+local cgfx = C_Guns:AddGroup("Bullet Visuals", NeverLose.Icons.leaf, "Left", 300)
+local _fireBulletsEnabled = false
+local _flashbangBulletsEnabled = false
+local _tornadoBulletsEnabled = false
+local _tornadoBulletSpeed = 250
+local _bulletVisualLastScan = 0
+local _bulletVisualConfigs = setmetatable({}, {__mode = "k"})
+local _bulletVisualOriginals = setmetatable({}, {__mode = "k"})
+local _bulletVisualKeys = {
+    "BulletSpeed", "DropGravity", "BulletSize", "BulletMeshScale", "BulletTransparency",
+    "BulletMeshEnabled", "BulletMeshID", "BulletTextureID", "BulletLightEnabled",
+    "BulletLightBrightness", "BulletLightRange", "BulletLightColor", "MuzzleLightEnabled",
+    "LightColor", "LightBrightness", "LightRange", "LightShadows", "MuzzleFlashEnabled",
+    "DisappearTime", "BulletParticleEnaled", "BulletParticleColor", "BulletParticleSize"
+}
+local function _saveBulletVisualOriginals(cfg)
+    if _bulletVisualOriginals[cfg] then return end
+    local saved = {values = {}, exists = {}}
+    for _, k in ipairs(_bulletVisualKeys) do
+        local v = rawget(cfg, k)
+        saved.exists[k] = v ~= nil
+        saved.values[k] = v
+    end
+    _bulletVisualOriginals[cfg] = saved
+end
+local function _restoreBulletVisualConfig(cfg)
+    local saved = _bulletVisualOriginals[cfg]
+    if not saved then return end
+    for _, k in ipairs(_bulletVisualKeys) do
+        rawset(cfg, k, saved.exists[k] and saved.values[k] or nil)
+    end
+end
+local function _collectBulletVisualConfigs()
+    local ok, objects = pcall(getgc, true)
+    if not ok or type(objects) ~= "table" then return end
+    local function add(c)
+        if typeof(c) == "table" and rawget(c, "BulletSpeed") then
+            _bulletVisualConfigs[c] = true
+            _saveBulletVisualOriginals(c)
+        end
+    end
+    for _, o in ipairs(objects) do
+        if typeof(o) == "table" then
+            pcall(function() add(o); add(rawget(o, 7)); add(rawget(o, 8)) end)
+        end
+    end
+    _bulletVisualLastScan = os.clock()
+end
+local function _applyBulletVisualConfig(cfg)
+    _restoreBulletVisualConfig(cfg)
+    if _fireBulletsEnabled then
+        rawset(cfg, "BulletSpeed", 150)
+        rawset(cfg, "DropGravity", 0.3)
+        rawset(cfg, "BulletParticleEnaled", true)
+        rawset(cfg, "BulletParticleColor", Color3.new(1, 0, 0))
+        rawset(cfg, "BulletParticleSize", NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 9e9),
+            NumberSequenceKeypoint.new(1, 1)
+        }))
+    end
+    if _flashbangBulletsEnabled then
+        rawset(cfg, "BulletLightEnabled", true)
+        rawset(cfg, "BulletLightBrightness", 9e9)
+        rawset(cfg, "BulletLightRange", 99999)
+        if rawget(cfg, "BulletLightColor") ~= nil then rawset(cfg, "BulletLightColor", Color3.new(1, 1, 1)) end
+        rawset(cfg, "MuzzleLightEnabled", true)
+        rawset(cfg, "LightColor", Color3.new(1, 1, 1))
+        rawset(cfg, "LightBrightness", 999)
+        rawset(cfg, "LightRange", 999)
+        rawset(cfg, "LightShadows", true)
+        rawset(cfg, "MuzzleFlashEnabled", true)
+        rawset(cfg, "DisappearTime", 8)
+    end
+    if _tornadoBulletsEnabled then
+        rawset(cfg, "BulletSpeed", _tornadoBulletSpeed)
+        rawset(cfg, "DropGravity", 0)
+        rawset(cfg, "BulletSize", Vector3.new(1, 1, 1))
+        rawset(cfg, "BulletMeshScale", Vector3.new(1, 1, 1))
+        rawset(cfg, "BulletTransparency", 0)
+        rawset(cfg, "BulletMeshEnabled", true)
+        rawset(cfg, "BulletMeshID", "rbxassetid://15775612843")
+        rawset(cfg, "BulletTextureID", "rbxassetid://15775612843")
+    end
+end
+local function _applyAllBulletVisuals()
+    for cfg in pairs(_bulletVisualConfigs) do pcall(_applyBulletVisualConfig, cfg) end
+end
+local function _restoreAllBulletVisuals()
+    for cfg in pairs(_bulletVisualConfigs) do pcall(_restoreBulletVisualConfig, cfg) end
+end
+local function _refreshBulletVisualState()
+    _collectBulletVisualConfigs()
+    if _fireBulletsEnabled or _flashbangBulletsEnabled or _tornadoBulletsEnabled then
+        _applyAllBulletVisuals()
+    else
+        _restoreAllBulletVisuals()
+    end
+end
+cgfx:AddCheckbox({ Name="Fire Bullets", Default=false, Flag="bv_fire", Callback=function(v) _fireBulletsEnabled = v; _refreshBulletVisualState() end })
+cgfx:AddCheckbox({ Name="Flashbang Bullets", Default=false, Flag="bv_flash", Callback=function(v) _flashbangBulletsEnabled = v; _refreshBulletVisualState() end })
+cgfx:AddCheckbox({ Name="Tornado Bullets", Default=false, Flag="bv_tornado", Callback=function(v) _tornadoBulletsEnabled = v; _refreshBulletVisualState() end })
+cgfx:AddSlider({ Name="Tornado Speed", Min=1, Max=500, Default=250, Flag="bv_tornado_speed", Callback=function(v) _tornadoBulletSpeed = v; if _tornadoBulletsEnabled then _applyAllBulletVisuals() end end })
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if _fireBulletsEnabled or _flashbangBulletsEnabled or _tornadoBulletsEnabled then
+            _applyAllBulletVisuals()
+        end
+    end
+end)
+
+local hb = C_Hitbox:AddGroup("Hitbox", NeverLose.Icons.user, "Left", 150)
+hb:AddCheckbox({ Name="Enable Hitbox", Default=false, Flag="hitbox_enabled", Callback=function(v) getgenv().hitboxEnabled=v; if not v then
+    for char, orig in pairs(getgenv().hitboxOriginalSizes) do
+        if char and char.Parent then local hrp=char:FindFirstChild("HumanoidRootPart"); if hrp then hrp.Size=orig end end
+    end
+    table.clear(getgenv().hitboxOriginalSizes)
+end end })
+hb:AddSlider({ Name="Hitbox Size", Min=1, Max=50, Default=30, Flag="hitbox_size", Callback=function(v) getgenv().hitboxSize=v end })
+
+local aimGroup = C_Aimbot:AddGroup("Aimbot", NeverLose.Icons.crosshairs, "Left", 320)
+aimGroup:AddCheckbox({ Name="Aimbot Enabled", Default=false, Flag="aimbot_enabled", Callback=function(v) _aimbotCfg.Enabled = v; if v then _aimbotStart() else _aimbotStop() end end })
+aimGroup:AddCheckbox({ Name="Show FOV Circle", Default=true, Flag="aimbot_showfov", Callback=function(v) _aimbotCfg.ShowFOV = v end })
+aimGroup:AddCheckbox({ Name="Visible Check", Default=true, Flag="aimbot_vis", Callback=function(v) _aimbotCfg.VisibleCheck = v end })
+aimGroup:AddCheckbox({ Name="Always On", Default=true, Flag="aimbot_alwayson", Callback=function(v) _aimbotCfg.UseAlwaysOn = v end })
+aimGroup:AddDropdown({ Name="Aim Key (Hold)", Items={"Right Mouse","Left Mouse","E","Q","F","G"}, Default="Right Mouse", Flag="aimbot_key", Callback=function(v)
+    if v == "Right Mouse" then _aimbotCfg.Key = Enum.UserInputType.MouseButton2
+    elseif v == "Left Mouse" then _aimbotCfg.Key = Enum.UserInputType.MouseButton1
+    else _aimbotCfg.Key = Enum.KeyCode[tostring(v)] end
+end })
+aimGroup:AddDropdown({ Name="Hitbox", Items={"Head","Torso","Closest"}, Default="Head", Flag="aimbot_hitbox", Callback=function(v) _aimbotCfg.HitPart = tostring(v) end })
+aimGroup:AddDropdown({ Name="FOV Mode", Items={"Screen Center","Follow Mouse"}, Default="Screen Center", Flag="aimbot_fovmode", Callback=function(v) _aimbotCfg.FOVMode = tostring(v) end })
+aimGroup:AddSlider({ Name="FOV", Min=20, Max=800, Default=200, Flag="aimbot_fov", Callback=function(v) _aimbotCfg.FOV = v end })
+aimGroup:AddSlider({ Name="Smoothness", Min=0, Max=100, Default=25, Flag="aimbot_smooth", Callback=function(v) _aimbotCfg.Smooth = (v == 0) and 0 or (v / 100) end })
+
+Window:AddCategory("Visuals")
+local VisualsTab = Window:AddTab("Visuals", NeverLose.Icons.pallet)
+local V_Main = VisualsTab:AddSubtab("ESP")
+
+local eg = V_Main:AddGroup("Player ESP", NeverLose.Icons.user, "Left", 380)
+eg:AddCheckbox({ Name="ESP Enabled", Default=false, Flag="esp_enabled", Callback=function(v) getgenv().ESPFlags.Enabled=v end })
+eg:AddSlider({ Name="Render Distance", Min=50, Max=5000, Default=1400, Suffix="m", Flag="esp_dist", Callback=function(v) getgenv().ESPFlags.RenderDistance=v end })
+eg:AddCheckbox({ Name="Team Color", Default=true, Flag="esp_team", Callback=function(v) getgenv().ESPFlags.TeamColor=v end })
+eg:AddCheckbox({ Name="Boxes", Default=true, Flag="esp_boxes", Callback=function(v) getgenv().ESPFlags.Boxes=v end })
+eg:AddDropdown({ Name="Box Type", Items={"Corner","Full"}, Flag="esp_boxtype", Callback=function(v) getgenv().ESPFlags.BoxType=tostring(v) end })
+eg:AddDropdown({ Name="Box Color", Items=VisualColorNames, Default='Orange', Flag="esp_boxcolor", Callback=function(v) getgenv().ESPFlags.BoxColor=getVisualColor(tostring(v),Color3.fromRGB(255,140,0)) end })
+eg:AddCheckbox({ Name="Box Fill", Default=false, Flag="esp_boxfill", Callback=function(v) getgenv().ESPFlags.BoxFill=v end })
+eg:AddDropdown({ Name="Box Fill Color", Items=VisualColorNames, Default='White', Flag="esp_boxfillcolor", Callback=function(v) getgenv().ESPFlags.BoxFillColor=getVisualColor(tostring(v),Color3.fromRGB(255,255,255)) end })
+eg:AddCheckbox({ Name="Healthbar", Default=true, Flag="esp_healthbar", Callback=function(v) getgenv().ESPFlags.Healthbar=v end })
+eg:AddCheckbox({ Name="Healthbar Number", Default=false, Flag="esp_healthnum", Callback=function(v) getgenv().ESPFlags.HealthbarNumber=v end })
+eg:AddSlider({ Name="Healthbar Thickness", Min=1, Max=10, Default=3, Flag="esp_healththick", Callback=function(v) getgenv().ESPFlags.HealthbarThickness=v end })
+eg:AddCheckbox({ Name="Chams", Default=false, Flag="esp_chams", Callback=function(v) getgenv().ESPFlags.Chams=v end })
+eg:AddDropdown({ Name="Chams Color", Items=VisualColorNames, Default='Orange', Flag="esp_chamscolor", Callback=function(v) getgenv().ESPFlags.ChamsColor=getVisualColor(tostring(v),Color3.fromRGB(255,140,0)) end })
+
+local es = V_Main:AddGroup("ESP Text", NeverLose.Icons.feather, "Right", 380)
+es:AddCheckbox({ Name="Name", Default=true, Flag="esp_name", Callback=function(v) getgenv().ESPFlags.Name=v end })
+es:AddCheckbox({ Name="Friend Marker", Default=true, Flag="esp_friend", Callback=function(v) getgenv().ESPFlags.FriendMarker=v end })
+es:AddDropdown({ Name="Friend Color", Items=VisualColorNames, Default='Green', Flag="esp_friendcolor", Callback=function(v) getgenv().ESPFlags.FriendColor=getVisualColor(tostring(v),Color3.fromRGB(0,255,0)) end })
+es:AddCheckbox({ Name="Distance", Default=true, Flag="esp_dist_text", Callback=function(v) getgenv().ESPFlags.Distance=v end })
+es:AddCheckbox({ Name="Weapon", Default=false, Flag="esp_weapon", Callback=function(v) getgenv().ESPFlags.Weapon=v end })
+es:AddSlider({ Name="Text Size", Min=8, Max=20, Default=14, Flag="esp_textsize", Callback=function(v) getgenv().ESPFlags.TextSize=v end })
+es:AddDropdown({ Name="Text Color", Items=VisualColorNames, Default='White', Flag="esp_textcolor", Callback=function(v) getgenv().ESPFlags.TextColor=getVisualColor(tostring(v),Color3.fromRGB(255,255,255)) end })
+es:AddCheckbox({ Name="Snaplines", Default=false, Flag="esp_snap", Callback=function(v) getgenv().ESPFlags.Snaplines=v end })
+es:AddDropdown({ Name="Snapline Color", Items=VisualColorNames, Default='Orange', Flag="esp_snapcolor", Callback=function(v) getgenv().ESPFlags.SnaplineColor=getVisualColor(tostring(v),Color3.fromRGB(255,140,0)) end })
+es:AddCheckbox({ Name="Skeleton", Default=false, Flag="esp_skel", Callback=function(v) getgenv().ESPFlags.Skeleton=v end })
+es:AddDropdown({ Name="Skeleton Color", Items=VisualColorNames, Default='White', Flag="esp_skelcolor", Callback=function(v) getgenv().ESPFlags.SkeletonColor=getVisualColor(tostring(v),Color3.fromRGB(255,255,255)) end })
+es:AddCheckbox({ Name="Look Tracers", Default=false, Flag="esp_look", Callback=function(v) getgenv().ESPFlags.LookTracers=v end })
+es:AddDropdown({ Name="Look Tracer Color", Items=VisualColorNames, Default='Cyan', Flag="esp_lookcolor", Callback=function(v) getgenv().ESPFlags.LookTracerColor=getVisualColor(tostring(v),Color3.fromRGB(0,255,255)) end })
+
+Window:AddCategory("Important Stuff")
+local ImportantTab = Window:AddTab("Important Stuff", NeverLose.Icons.dagger)
+local I_Main = ImportantTab:AddSubtab("Main")
+
+local isafe = I_Main:AddGroup("Safe", NeverLose.Icons.save, "Left", 380)
+local safeStatusLabel = isafe:AddLabel("Safe Status: Ready")
+local safeItemsLabel  = isafe:AddLabel("Items in Safe: ?")
+local safeDupedLabel  = isafe:AddLabel("Total Duped: 0")
+local safeStateLabel  = isafe:AddLabel("Dupe: IDLE")
+
+local _lastSafeList = {}
+local _initSafeItems = GetSafeItems()
+if #_initSafeItems == 0 then _initSafeItems = {'(empty)'} end
+getgenv().selectedSafeItem = _initSafeItems[1]
+_lastSafeList = _initSafeItems
+
+local safeDropdown = isafe:AddDropdown({
+    Name = "Select Safe Item",
+    Items = _initSafeItems,
+    Default = getgenv().selectedSafeItem,
+    Flag = "safe_item_drop",
+    Callback = function(v) getgenv().selectedSafeItem = tostring(v) end
+})
+
+isafe:AddButton({ Name = "Take Selected Item", Callback = function()
+    local pick = safeDropdown:Get() or getgenv().selectedSafeItem
+    if not pick or pick == '(empty)' then return end
+    task.spawn(function()
+        local ok = TakeSelectedItemBypass(pick)
+        safeStatusLabel:SetText(ok and ("Safe Status: Took " .. pick) or "Safe Status: Failed")
+    end)
+end })
+
+isafe:AddButton({ Name="Take All", Callback=function()
+    if getgenv().safeTakeAllActive then return end
+    local items=GetSafeItems(); if #items==0 then return end
+    getgenv().safeTakeAllActive=true
+    task.spawn(function()
+        for _,n in ipairs(items) do
+            if not getgenv().safeTakeAllActive then break end
+            TakeSelectedItemBypass(n); task.wait(0.5)
+        end
+        getgenv().safeTakeAllActive=false
+    end)
+end })
+isafe:AddButton({ Name="Stop Take All", Callback=function() getgenv().safeTakeAllActive=false end })
+isafe:AddButton({ Name="Safe TP", Callback=SafeTP })
+
+task.spawn(function()
+    while task.wait(1.5) do
+        pcall(function()
+            local items = GetSafeItems()
+            if #items == 0 then items = {'(empty)'} end
+            local changed = (#items ~= #_lastSafeList)
+            if not changed then
+                for i = 1, #items do
+                    if items[i] ~= _lastSafeList[i] then changed = true; break end
+                end
+            end
+            if changed then
+                _lastSafeList = items
+                local keep = getgenv().selectedSafeItem
+                pcall(function() safeDropdown:Refresh(items) end)
+                local valid = false
+                for _, n in ipairs(items) do if n == keep then valid = true; break end end
+                if not valid then
+                    getgenv().selectedSafeItem = items[1]
+                    pcall(function() safeDropdown:Set(items[1]) end)
+                end
+            end
+            safeItemsLabel:SetText("Items in Safe: " .. tostring(#GetSafeItems()))
+            safeDupedLabel:SetText("Total Duped: " .. tostring(getgenv().dupeCounter or 0))
+            safeStateLabel:SetText("Dupe: " .. (getgenv().autoDupeActive and "ACTIVE" or "IDLE"))
+        end)
+    end
+end)
+
+local idupe = I_Main:AddGroup("Safe Dupe", NeverLose.Icons.crosshairs, "Right", 380)
+local dupeItems = GetLockedTools(); table.insert(dupeItems,1,'None')
+local dupeDropdown = idupe:AddDropdown({ Name="Select Item", Items=dupeItems, Default='None', Flag="dupe_item_drop", Callback=function(v) local pick=tostring(v); if pick=='None' or pick=='' then getgenv().selectedDupeItem=nil else getgenv().selectedDupeItem=pick end end })
+idupe:AddButton({ Name="Refresh Items", Callback=function() local items=GetLockedTools(); local list={'None'}; for _,t in ipairs(items) do table.insert(list,t) end; pcall(function() dupeDropdown:Refresh(list) end); getgenv().selectedDupeItem=nil end })
+idupe:AddSlider({ Name="Custom Dupe", Min=1, Max=15, Default=1, Flag="dupe_custom_amount", Callback=function(v) getgenv().customDupeAmount=v end })
+idupe:AddButton({ Name="Custom Safe Dupe", Callback=function() if getgenv().autoDupeActive then return end; DoDupe(getgenv().customDupeAmount or 1) end })
+idupe:AddButton({ Name="Safe Dupe 15 Times", Callback=function() if not getgenv().autoDupeActive then DoDupe(15) end end })
+idupe:AddButton({ Name="Stop Safe Dupe", Callback=function() if getgenv().autoDupeActive then getgenv().autoDupeActive=false end end })
+idupe:AddCheckbox({ Name="Auto Drop Tools", Default=false, Flag="auto_drop_tools", Callback=function(s) ToggleAutoDrop(s) end })
+idupe:AddButton({ Name="Generate Max Illegal Money", Callback=function() task.spawn(function() pcall(generateMaxIllegalMoney) end) end })
+idupe:AddButton({ Name="Clean Dirty Money", Callback=function() task.spawn(function() pcall(cleanAllFilthyMoney) end) end })
+idupe:AddCheckbox({ Name="Auto Drop 10k Cash", Default=false, Flag="auto_drop_10k", Callback=function(v) getgenv().moneyDropEnabled=v; if v then task.spawn(function() while getgenv().moneyDropEnabled do pcall(function() local bankRemote=ReplicatedStorage:FindFirstChild("BankProcessRemote",true); if bankRemote then if bankRemote.InvokeServer then bankRemote:InvokeServer("Drop",10000) elseif bankRemote.FireServer then bankRemote:FireServer("Drop",10000) end end end); task.wait(0.5) end end) end end })
+
+Window:AddCategory("Teleports")
+local TeleportTab = Window:AddTab("Teleports", NeverLose.Icons.pallet)
+local T_Main = TeleportTab:AddSubtab("Teleports")
+
+local tl = T_Main:AddGroup("Locations", NeverLose.Icons.hammer, "Left", 200)
+tl:AddDropdown({ Name="Location", Items=teleportNames, Default=getgenv().selectedTeleportName, Flag="tp_drop", Callback=function(v) getgenv().selectedTeleportName=tostring(v) end })
+tl:AddButton({ Name="Teleport", Callback=function() local cf=getgenv().selectedTeleportName and getgenv().teleportLocations[getgenv().selectedTeleportName]; if cf then getgenv().TacoTeleport(cf) end end })
+
+local th = T_Main:AddGroup("Houses", NeverLose.Icons.user, "Right", 200)
+getgenv().HouseLookup={}; getgenv().selectedHouseName=nil
+local houseDropdown = th:AddDropdown({ Name='Select House', Items={'No houses found'}, Flag='house_drop', Callback=function(v) getgenv().selectedHouseName=tostring(v) end })
+local function refreshHouseList()
+    table.clear(getgenv().HouseLookup); local values={}
+    local folder=workspace:FindFirstChild("HomeDoorSS")
+    if folder then for _,house in ipairs(folder:GetChildren()) do local owner=house:FindFirstChild("Owner"); if owner and tostring(owner.Value)~="None" and tostring(owner.Value)~="" then local display=(tostring(owner.Value)==LocalPlayer.Name) and "My House" or (tostring(owner.Value).."'s House"); table.insert(values,display); getgenv().HouseLookup[display]=house end end end
+    table.sort(values); if #values==0 then values={'No houses found'} end
+    getgenv().selectedHouseName=values[1]; pcall(function() houseDropdown:Refresh(values) end)
+end
+th:AddButton({ Name="Refresh Houses", Callback=function() refreshHouseList() end })
+th:AddButton({ Name="Teleport To House", Callback=function() if not getgenv().selectedHouseName or getgenv().selectedHouseName=='No houses found' then return end; local house=getgenv().HouseLookup[getgenv().selectedHouseName]; if not house then return end; local part=house.PrimaryPart or house:FindFirstChildWhichIsA("BasePart",true); if not part then return end; getgenv().TacoTeleport(part.CFrame+Vector3.new(0,5,0)) end })
+refreshHouseList()
+task.spawn(function() local folder=workspace:WaitForChild("HomeDoorSS",10); if not folder then return end; folder.ChildAdded:Connect(function() refreshHouseList() end); folder.ChildRemoved:Connect(function() refreshHouseList() end) end)
+
+Window:AddCategory("Bronx")
+local BronxTab = Window:AddTab("Bronx", NeverLose.Icons.user)
+local B_Bail   = BronxTab:AddSubtab("Bail")
+local B_Log    = BronxTab:AddSubtab("Arrest Log")
+
+local bailBox = B_Bail:AddGroup("Prisoners", NeverLose.Icons.user, "Left", 320)
+getgenv().selectedPrisoner = nil
+
+local bailDropdown = bailBox:AddDropdown({
+    Name = "Select Prisoner",
+    Items = {"None"},
+    Default = "None",
+    Flag = "bail_prisoner_drop",
+    Callback = function(v) getgenv().selectedPrisoner = tostring(v) end
+})
+
+local function getPrisonerNames()
+    local list = {}
+    local team = Teams:FindFirstChild("Prisoner")
+    if not team then return list end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Team == team then
+            table.insert(list, p.Name)
+        end
+    end
+    table.sort(list)
+    return list
+end
+
+task.spawn(function()
+    local last = {}
+    while task.wait(2) do
+        pcall(function()
+            local newList = getPrisonerNames()
+            if #newList == 0 then newList = {"None"} end
+            local changed = (#newList ~= #last)
+            if not changed then
+                for i = 1, #newList do
+                    if newList[i] ~= last[i] then changed = true; break end
+                end
+            end
+            if changed then
+                last = newList
+                local keep = getgenv().selectedPrisoner
+                pcall(function() bailDropdown:Refresh(newList) end)
+                local valid = false
+                for _, n in ipairs(newList) do
+                    if n == keep then valid = true; break end
+                end
+                if not valid then
+                    getgenv().selectedPrisoner = newList[1]
+                    pcall(function() bailDropdown:Set(newList[1]) end)
+                end
+            end
+        end)
+    end
+end)
+
+bailBox:AddButton({
+    Name = "Bail Player",
+    Callback = function()
+        local pick = bailDropdown:Get() or getgenv().selectedPrisoner
+        if not pick or pick == "None" or pick == "" then return end
+        pcall(function() bronxBailEvent:FireServer(pick) end)
+    end
+})
+
+bailBox:AddButton({
+    Name = "Bail All Prisoners",
+    Callback = function()
+        task.spawn(function()
+            local list = getPrisonerNames()
+            for _, name in ipairs(list) do
+                pcall(function() bronxBailEvent:FireServer(name) end)
+                task.wait(0.4)
+            end
+        end)
+    end
+})
+
+local logBox = B_Log:AddGroup("Arrest Records", NeverLose.Icons.feather, "Left", 380)
+local arrestLogLabel = logBox:AddLabel("No data yet - press Refresh")
+getgenv().arrestLogCache = {}
+
+local function formatArrests(data)
+    if type(data) ~= "table" then return "No data" end
+    local lines = {}
+    for i, rec in ipairs(data) do
+        if type(rec) == "table" then
+            local who   = rec.Player or rec.Name or rec.Username or rec[1] or "?"
+            local cop   = rec.Officer or rec.Cop or rec.By or rec[2] or "?"
+            local crime = rec.Crime or rec.Reason or rec[3] or "?"
+            local time  = rec.Time or rec.When or rec[4] or ""
+            table.insert(lines, string.format("%d) %s - by %s - %s %s", i, tostring(who), tostring(cop), tostring(crime), tostring(time)))
+        else
+            table.insert(lines, string.format("%d) %s", i, tostring(rec)))
+        end
+    end
+    if #lines == 0 then return "No arrest records" end
+    return table.concat(lines, "\n")
+end
+
+local function refreshArrestLog()
+    task.spawn(function()
+        local ok, data = pcall(function() return getArrestsRF:InvokeServer() end)
+        if not ok then
+            arrestLogLabel:SetText("getArrests is a RemoteEvent or needs args")
+            return
+        end
+        getgenv().arrestLogCache = data
+        arrestLogLabel:SetText(formatArrests(data))
+    end)
+end
+
+logBox:AddButton({ Name = "Refresh Arrest Log", Callback = refreshArrestLog })
+task.spawn(refreshArrestLog)
+
+if arrestLogEvent:IsA("RemoteEvent") then
+    arrestLogEvent.OnClientEvent:Connect(function(...)
+        local args = {...}
+        local entry = args[1]
+        table.insert(getgenv().arrestLogCache, 1, entry)
+        if #getgenv().arrestLogCache > 100 then
+            table.remove(getgenv().arrestLogCache, #getgenv().arrestLogCache)
+        end
+        pcall(function() arrestLogLabel:SetText(formatArrests(getgenv().arrestLogCache)) end)
+    end)
+end
+
+if arrestHelpEvent:IsA("RemoteFunction") then
+    logBox:AddButton({
+        Name = "Call ArrestHelp",
+        Callback = function()
+            pcall(function()
+                local res = arrestHelpEvent:InvokeServer()
+                arrestLogLabel:SetText("ArrestHelp: " .. tostring(res))
+            end)
+        end
+    })
+end
+
+task.spawn(function()
+    local lastTarget = {}
+    local lastWhite = {}
+    while task.wait(2) do
+        pcall(function()
+            local newList = getTargetPlayerList()
+            local changed = (#newList ~= #lastTarget)
+            if not changed then
+                for i = 1, #newList do
+                    if newList[i] ~= lastTarget[i] then changed = true; break end
+                end
+            end
+            if changed then
+                lastTarget = newList
+                pcall(function() TargetDropdown:Refresh(newList) end)
+                pcall(function() TargetWhitelistDropdown:Refresh(newList) end)
+            end
+            local wl = {}
+            for name, _ in pairs(getgenv().whitelist) do table.insert(wl, name) end
+            table.sort(wl, function(a,b) return a:lower() < b:lower() end)
+            if #wl == 0 then wl = {'None'} end
+            local wlChanged = (#wl ~= #lastWhite)
+            if not wlChanged then
+                for i = 1, #wl do
+                    if wl[i] ~= lastWhite[i] then wlChanged = true; break end
+                end
+            end
+            if wlChanged then
+                lastWhite = wl
+                pcall(function() TargetWhitelistList:Refresh(wl) end)
+            end
+        end)
+    end
+end)
